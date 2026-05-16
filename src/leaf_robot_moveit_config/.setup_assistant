@@ -1,0 +1,25 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: leaf_robot_description
+    relative_path: urdf/leaf_robot.urdf
+  srdf:
+    relative_path: config/leaf_robot_description.srdf
+  package_settings:
+    author_name: todo
+    author_email: todo@todo.com
+    generated_timestamp: 1778927230
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
