@@ -186,7 +186,7 @@
       <geometry>
         <mesh filename="package://leaf_robot_description/meshes/J_4.STL"/>
       </geometry>
-      <material name="blue"/>
+      <material name="gray"/>
     </visual>
 
     <collision>
@@ -224,7 +224,7 @@
       <geometry>
         <mesh filename="package://leaf_robot_description/meshes/J_5.STL"/>
       </geometry>
-      <material name="blue"/>
+      <material name="gray"/>
     </visual>
 
     <collision>
@@ -244,41 +244,390 @@
   </joint>
 
   <!-- ================= LINK J6 ================= -->
+  <joint name="ROT_3" type="revolute">
+    <parent link="J_5"/>
+    <child link="J_6"/>
+    <origin xyz="-0.0015905 -0.0042271 -0.078525" rpy="0 0 -0.353599"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="50" velocity="1.0" lower="-6.28" upper="6.28"/>
+  </joint>
+
   <link name="J_6">
-    <inertial>
-      <origin xyz="2.7717E-06 -2.0096E-05 -0.080219" rpy="0 0 0"/>
-      <mass value="0.14576"/>
-      <inertia
-        ixx="0.00028918"
-        ixy="-2.2998E-06"
-        ixz="4.0193E-08"
-        iyy="0.00029007"
-        iyz="-4.6894E-08"
-        izz="0.00011651"/>
-    </inertial>
-
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://leaf_robot_description/meshes/J_6.STL"/>
-      </geometry>
-      <material name="blue"/>
+      <geometry><cylinder length="0.1" radius="0.03"/></geometry>
+      <origin xyz="0 0 0" rpy="-1.5708 0 0"/>
+      <material name="gray"/>
     </visual>
-
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://leaf_robot_description/meshes/J_6.STL"/>
-      </geometry>
+      <geometry><box size="0.04 0.02 0.02"/></geometry>
+      <origin xyz="0 0 0" rpy="-1.5708 0 0"/>
     </collision>
   </link>
 
-  <joint name="ROT_3" type="revolute">
-    <origin xyz="-0.00088397 -0.0023385 -0.0725" rpy="1.5708 -0.70269 2.7802"/>
-    <parent link="J_5"/>
-    <child link="J_6"/>
-    <axis xyz="0 0 1"/>
-    <limit lower="-3.14" upper="3.14" effort="10" velocity="1.0"/>
+  <!-- ========================= -->
+  <!-- GRIPPER BASE -->
+  <!-- ========================= -->
+
+  <joint name="Gripper" type="fixed">
+    <parent link="J_6"/>
+    <child link="gripper_base_link"/>
+    <origin xyz="0 -0.06 0" rpy="1.5708 0 0"/>
   </joint>
+
+  <link name="gripper_base_link">
+    <visual>
+      <geometry>
+        <box size="0.02 0.06 0.02"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+  </link>
+
+  <!-- LEFT FINGER -->
+
+  <joint name="left_finger_joint" type="prismatic">
+    <parent link="gripper_base_link"/>
+    <child link="left_finger"/>
+    <origin xyz="0 0.025 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="0.0" upper="0.02"
+           effort="10" velocity="0.1"/>
+  </joint>
+
+  <link name="left_finger">
+    <visual>
+      <geometry>
+        <box size="0.02 0.01 0.235"/>
+      </geometry>
+      <origin xyz="0 0 0.1175"/>
+      <material name="green"/>
+    </visual>
+  </link>
+
+  <!-- RIGHT FINGER -->
+
+  <joint name="right_finger_joint" type="prismatic">
+    <parent link="gripper_base_link"/>
+    <child link="right_finger"/>
+    <origin xyz="0 -0.025 0"/>
+    <axis xyz="0 -1 0"/>
+    <mimic joint="left_finger_joint" multiplier="-1.0"/>
+    <limit lower="0.0" upper="0.02"
+           effort="10" velocity="0.1"/>
+  </joint>
+
+  <link name="right_finger">
+    <visual>
+      <geometry>
+        <box size="0.02 0.01 0.235"/>
+      </geometry>
+      <origin xyz="0 0 0.1175"/>
+      <material name="green"/>
+    </visual>
+  </link> 
+
+<!-- ================================================= -->
+<!-- MATERIALS -->
+<!-- ================================================= -->
+
+<material name="green">
+  <color rgba="0 1 0 0.5"/>
+</material>
+
+<material name="yellow">
+  <color rgba="1 1 0 0.5"/>
+</material>
+
+<material name="red">
+  <color rgba="1 0 0 1"/>
+</material>
+
+
+<!-- ================================================= -->
+<!-- BIG CYLINDER DIVIDED INTO 8 HEIGHT SECTIONS -->
+<!-- ALTERNATE GREEN + YELLOW -->
+<!-- ================================================= -->
+
+
+<!-- ================= SECTION 1 ================= -->
+<link name="big_section_1">
+
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+
+    <material name="green"/>
+  </visual>
+
+  <collision>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+  </collision>
+
+</link>
+
+<joint name="big_section_1_joint" type="fixed">
+  <parent link="base_footprint"/>
+  <child link="big_section_1"/>
+
+  <origin xyz="0.30 -0.45 0.1" rpy="0 0 0"/>
+</joint>
+
+
+<!-- ================= SECTION 2 ================= -->
+<link name="big_section_2">
+
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+
+    <material name="yellow"/>
+  </visual>
+
+  <collision>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+  </collision>
+
+</link>
+
+<joint name="big_section_2_joint" type="fixed">
+  <parent link="base_footprint"/>
+  <child link="big_section_2"/>
+
+  <origin xyz="0.30 -0.45 0.3" rpy="0 0 0"/>
+</joint>
+
+
+<!-- ================= SECTION 3 ================= -->
+<link name="big_section_3">
+
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+
+    <material name="green"/>
+  </visual>
+
+  <collision>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+  </collision>
+
+</link>
+
+<joint name="big_section_3_joint" type="fixed">
+  <parent link="base_footprint"/>
+  <child link="big_section_3"/>
+
+  <origin xyz="0.30 -0.45 0.5" rpy="0 0 0"/>
+</joint>
+
+
+<!-- ================= SECTION 4 ================= -->
+<link name="big_section_4">
+
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+
+    <material name="yellow"/>
+  </visual>
+
+  <collision>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+  </collision>
+
+</link>
+
+<joint name="big_section_4_joint" type="fixed">
+  <parent link="base_footprint"/>
+  <child link="big_section_4"/>
+
+  <origin xyz="0.30 -0.45 0.7" rpy="0 0 0"/>
+</joint>
+
+
+<!-- ================= SECTION 5 ================= -->
+<link name="big_section_5">
+
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+
+    <material name="green"/>
+  </visual>
+
+  <collision>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+  </collision>
+
+</link>
+
+<joint name="big_section_5_joint" type="fixed">
+  <parent link="base_footprint"/>
+  <child link="big_section_5"/>
+
+  <origin xyz="0.30 -0.45 0.9" rpy="0 0 0"/>
+</joint>
+
+
+<!-- ================= SECTION 6 ================= -->
+<link name="big_section_6">
+
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+
+    <material name="yellow"/>
+  </visual>
+
+  <collision>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+  </collision>
+
+</link>
+
+<joint name="big_section_6_joint" type="fixed">
+  <parent link="base_footprint"/>
+  <child link="big_section_6"/>
+
+  <origin xyz="0.30 -0.45 1.1" rpy="0 0 0"/>
+</joint>
+
+
+<!-- ================= SECTION 7 ================= -->
+<link name="big_section_7">
+
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+
+    <material name="green"/>
+  </visual>
+
+  <collision>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+  </collision>
+
+</link>
+
+<joint name="big_section_7_joint" type="fixed">
+  <parent link="base_footprint"/>
+  <child link="big_section_7"/>
+
+  <origin xyz="0.30 -0.45 1.3" rpy="0 0 0"/>
+</joint>
+
+
+<!-- ================= SECTION 8 ================= -->
+<link name="big_section_8">
+
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+
+    <material name="yellow"/>
+  </visual>
+
+  <collision>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.30" length="0.2"/>
+    </geometry>
+  </collision>
+
+</link>
+
+<joint name="big_section_8_joint" type="fixed">
+  <parent link="base_footprint"/>
+  <child link="big_section_8"/>
+
+  <origin xyz="0.30 -0.45 1.5" rpy="0 0 0"/>
+</joint>
+
+
+<!-- ================================================= -->
+<!-- SMALL CENTER CYLINDER -->
+<!-- ================================================= -->
+
+<link name="small_cylinder_1">
+
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.015" length="1.6"/>
+    </geometry>
+
+    <material name="red"/>
+  </visual>
+
+  <collision>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+
+    <geometry>
+      <cylinder radius="0.015" length="1.6"/>
+    </geometry>
+  </collision>
+
+</link>
+
+<joint name="small_cylinder_1_joint" type="fixed">
+  <parent link="base_footprint"/>
+  <child link="small_cylinder_1"/>
+
+  <origin xyz="0.30 -0.45 0.8" rpy="0 0 0"/>
+</joint>
 
 </robot>

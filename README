@@ -1,0 +1,2 @@
+ros2 launch leaf_robot_bringup demo_with_obstacle.launch.py
+ros2 launch urdf_tutorial display.launch.py model:=/home/tony/ur5_ws/src/leaf_robot_description/urdf/demo_leaf.urdf
