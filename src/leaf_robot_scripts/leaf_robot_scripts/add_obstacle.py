@@ -8,6 +8,8 @@ from rclpy.node import Node
 from rclpy.action import ActionClient
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
+from moveit_msgs.srv import GetPositionIK
+from geometry_msgs.msg import PoseStamped
 
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
@@ -68,7 +70,16 @@ class MoveWithMoveIt(Node):
             qos
         )
 
-        self.add_cylinder()
+        self.ik_client = self.create_client(
+            GetPositionIK,
+            "/compute_ik"
+        )
+
+        self.get_logger().info("Waiting for IK service...")
+        self.ik_client.wait_for_service()
+        self.get_logger().info("IK service ready ✔")
+
+        #self.add_cylinder()
         self.add_leaves()
 
     # -------------------------------------------------
@@ -243,26 +254,40 @@ class MoveWithMoveIt(Node):
             theta
         )
     # -------------------------------------------------
-    # ATTACH LEAF (KEY PART)
-    # -------------------------------------------------
     def attach_leaf(self, leaf_id):
 
-        scene_pub = self.create_publisher(PlanningScene, "/planning_scene", 10)
+        scene_pub = self.create_publisher(
+            PlanningScene,
+            "/planning_scene",
+            10
+        )
 
         attached = AttachedCollisionObject()
+
         attached.object.id = leaf_id
-        attached.object.header.frame_id = "base_footprint"
+        attached.object.header.frame_id = "gripper_base_link"
         attached.object.operation = CollisionObject.ADD
 
-        attached.link_name = "J_6"  # IMPORTANT: change if needed
+        attached.link_name = "gripper_base_link"
+
+        # move leaf from gripper base to finger tip
+        attached.object.pose.position.x = 0.08
+        attached.object.pose.position.y = 0.0
+        attached.object.pose.position.z = 0.0
+        attached.object.pose.orientation.w = 1.0
 
         scene = PlanningScene()
         scene.is_diff = True
-        scene.robot_state.attached_collision_objects.append(attached)
+
+        scene.robot_state.attached_collision_objects.append(
+           attached
+        )
 
         scene_pub.publish(scene)
 
-        self.get_logger().info(f"Leaf {leaf_id} attached ✔")
+        self.get_logger().info(
+        f"Leaf {leaf_id} attached ✔"
+        )
 
     # -------------------------------------------------
     # REMOVE SINGLE LEAF MARKER
@@ -398,75 +423,52 @@ class MoveWithMoveIt(Node):
     # -------------------------------------------------
     # RUN PICK PIPELINE
     # -------------------------------------------------
+  
     def run(self):
-        # target leaf
+
         target_leaf = 14
 
-        # remove visual marker
+        # ---------------------------------
+        # REMOVE VISUAL + ENABLE COLLISION
+        # ---------------------------------
         self.remove_leaf_marker(target_leaf)
 
-        # enable collision version
-        self.enable_leaf_by_index(target_leaf)
+        self.enable_leaf_by_index(
+            target_leaf
+        )
 
-        # enable collision for target leaf
-        self.enable_leaf_by_index(1)
-
-        p2 = [0.122,0.368,-2.312,1.194,-0.090,0.00]
-        
-        leaf_pose = [0.817, -0.230, 1.362, 0.441, 0.275, 0.0]
-
-        r2 = [0.817, -0.215, 1.362, 0.441, 0.275, 0.0]
-
-        home = [0, 0, 0, 0, 0, 0]
-
-        sequence = [
-            ("P2", p2),
-
-            ("GRIP_OPEN", None),
-
-            #("APPROACH", leaf_pose),
-
-            ("GRIP_CLOSE", None),
-
-            #("ATTACH", "leaf_1"),
-
-            #("R2", r2),
-
-            #("TWIST_TEST", leaf_pose),
-
-            #("LIFT", p2),
-
-            #("HOME", home),
+        # ---------------------------------
+        # SAFE PRE-GRASP POSE
+        # ---------------------------------
+        p2 = [
+            0.122,
+            0.368,
+           -2.312,
+            1.194,
+            -0.090,
+            0.00
         ]
 
-        for name, data in sequence:
+        self.move_to_joints(
+            p2,
+            "P2"
+        )
 
-            if name == "GRIP_OPEN":
-                self.move_gripper(0.0)
-                continue
+        # ---------------------------------
+        # OPEN GRIPPER BEFORE APPROACH
+        # ---------------------------------
+        self.move_gripper(0.0)
 
-            if name == "GRIP_CLOSE":
-                self.move_gripper(0.035)
-                continue
+        # ---------------------------------
+        # MOVE TO LEAF USING IK
+        # ---------------------------------
+        self.grab_leaf_ik(
+            target_leaf
+        )
 
-            if name == "ATTACH":
-                self.attach_leaf(data)
-                continue
-            
-            if name == "TWIST_TEST":
-
-                test_pose = data.copy()
-
-                # rotate wrist_3_joint
-                test_pose[5] += math.pi / 2
-
-                self.move_to_joints(test_pose, "TWIST_TEST")
-
-                continue
-
-            self.move_to_joints(data, name)
-
-        self.get_logger().info("PICK COMPLETE ✔")
+        self.get_logger().info(
+            "PICK COMPLETE ✔"
+        )
 
     # -------------------------------------------------
     # QUAT
@@ -481,7 +483,145 @@ class MoveWithMoveIt(Node):
         q.w = math.cos(roll/2) * math.cos(pitch/2) * math.cos(yaw/2) + math.sin(roll/2) * math.sin(pitch/2) * math.sin(yaw/2)
 
         return q
+    
+    def solve_ik(self, x, y, z, yaw=0.0):
 
+        request = GetPositionIK.Request()
+
+        request.ik_request.group_name = "arm"
+        request.ik_request.ik_link_name = "gripper_base_link"
+        request.ik_request.timeout.sec = 2
+
+        pose = PoseStamped()
+        pose.header.frame_id = "base_footprint"
+
+        pose.pose.position.x = x
+        pose.pose.position.y = y
+        pose.pose.position.z = z
+
+        q = self.euler_to_quaternion(
+            math.pi,   # tool facing downward
+            0.0,
+            yaw
+        )
+
+        pose.pose.orientation = q
+
+        request.ik_request.pose_stamped = pose
+
+        future = self.ik_client.call_async(request)
+
+        rclpy.spin_until_future_complete(
+            self,
+            future
+        )
+
+        result = future.result()
+
+        if result.error_code.val != 1:
+            self.get_logger().error(
+                "IK failed ❌"
+            )
+            return None
+
+        joint_state = result.solution.joint_state
+
+        arm_joint_names = [
+            "ROT_1",
+            "PITCH_1",
+            "PITCH_2",
+            "PITCH_3",
+            "ROT_2",
+            "ROT_3"
+        ]
+
+        joints = []
+
+        for joint_name in arm_joint_names:
+
+            idx = joint_state.name.index(
+                joint_name
+            )
+
+            joints.append(
+                joint_state.position[idx]
+            )
+
+        return joints
+    def grab_leaf_ik(self, leaf_index):
+
+        GOLDEN_ANGLE = math.radians(137.5)
+
+        NUM_LEAVES = 24
+        TOTAL_HEIGHT = 1.35
+        LEAF_RADIUS = 0.055
+
+        START_ANGLE = math.pi
+
+        theta = START_ANGLE + leaf_index * GOLDEN_ANGLE
+
+        z = 0.20 + (
+            leaf_index / NUM_LEAVES
+        ) * TOTAL_HEIGHT
+
+        x = 0.3 + LEAF_RADIUS * math.cos(theta)
+        y = -0.45 + LEAF_RADIUS * math.sin(theta)
+
+        self.get_logger().info(
+            f"Leaf {leaf_index} at "
+            f"x={x:.3f}, y={y:.3f}, z={z:.3f}"
+        )
+
+        # remove visual leaf
+        self.remove_leaf_marker(
+            leaf_index
+        )
+
+        # enable collision
+        self.enable_leaf_collision(
+            f"leaf_{leaf_index}",
+            x,
+            y,
+            z,
+            theta
+        )
+
+        # approach from outside of stem
+        approach_distance = 0.08
+
+        dx = math.cos(theta)
+        dy = math.sin(theta)
+
+        target_x = x + dx * approach_distance
+        target_y = y + dy * approach_distance
+        target_z = z
+
+        joints = self.solve_ik(
+            target_x,
+            target_y,
+            target_z,
+            yaw=theta+ math.pi
+        )
+
+        if joints is None:
+            return
+
+        self.move_gripper(0.0)
+
+        self.move_to_joints(
+            joints,
+            f"LEAF_{leaf_index}_APPROACH"
+        )
+
+        self.move_gripper(0.035)
+
+        self.attach_leaf(
+            f"leaf_{leaf_index}"
+        )
+
+        self.get_logger().info(
+            f"Leaf {leaf_index} grabbed ✔"
+        )
 
 def main(args=None):
     rclpy.init(args=args)
