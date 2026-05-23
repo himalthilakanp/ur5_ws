@@ -2,156 +2,365 @@
 
 import rclpy
 import time
+import math
 
 from rclpy.node import Node
 from rclpy.action import ActionClient
+from visualization_msgs.msg import Marker
+from visualization_msgs.msg import MarkerArray
 
 from moveit_msgs.action import MoveGroup
-
 from moveit_msgs.msg import (
     Constraints,
     JointConstraint,
+    CollisionObject,
     PlanningScene,
-    CollisionObject
+    ObjectColor,
+    AttachedCollisionObject
 )
 
 from shape_msgs.msg import SolidPrimitive
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import PoseStamped, Quaternion
+from std_msgs.msg import ColorRGBA
+
+from control_msgs.action import FollowJointTrajectory
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from rclpy.qos import QoSProfile
+from rclpy.qos import DurabilityPolicy
 
 
-class IndustrialMotion(Node):
+class MoveWithMoveIt(Node):
 
     def __init__(self):
+        super().__init__("move_with_moveit")
 
-        super().__init__("industrial_motion")
+        # MoveIt client
+        self.client = ActionClient(self, MoveGroup, 'move_action')
 
-        # -------------------------------------------------
-        # MOVEIT ACTION CLIENT
-        # -------------------------------------------------
-        self.client = ActionClient(
-            self,
-            MoveGroup,
-            "move_action"
-        )
-
-        self.get_logger().info(
-            "Waiting for MoveIt..."
-        )
-
+        self.get_logger().info("Waiting for MoveIt...")
         self.client.wait_for_server()
+        self.get_logger().info("MoveIt ready ✔")
 
-        self.get_logger().info(
-            "MoveIt ready ✔"
+        # Gripper action client
+        self.gripper_client = ActionClient(
+            self,
+            FollowJointTrajectory,
+            "/gripper_controller/follow_joint_trajectory"
         )
 
-        # -------------------------------------------------
-        # PLANNING SCENE PUBLISHER
-        # -------------------------------------------------
+        self.get_logger().info("Waiting for gripper controller...")
+        self.gripper_client.wait_for_server()
+        self.get_logger().info("Gripper ready ✔")
+
+        # Planning scene publisher
         self.scene_pub = self.create_publisher(
             PlanningScene,
-            "/planning_scene",
+            '/planning_scene',
             10
         )
+        qos = QoSProfile(depth=10)
+        qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
 
-        # add obstacle once
-        self.add_small_cylinder()
 
-    # -------------------------------------------------
-    # ADD SMALL CYLINDER
-    # -------------------------------------------------
-    def add_small_cylinder(self):
-
-        scene = PlanningScene()
-
-        scene.is_diff = True
-
-        # -------------------------------------------------
-        # COLLISION OBJECT
-        # -------------------------------------------------
-        obj = CollisionObject()
-
-        obj.id = "small_cylinder"
-
-        obj.header.frame_id = "base_footprint"
-
-        # -------------------------------------------------
-        # CYLINDER SHAPE
-        # -------------------------------------------------
-        cylinder = SolidPrimitive()
-
-        cylinder.type = SolidPrimitive.CYLINDER
-
-        # [height, radius]
-        cylinder.dimensions = [1.6, 0.015]
-
-        # -------------------------------------------------
-        # POSITION
-        # -------------------------------------------------
-        pose = Pose()
-
-        pose.position.x = 0.30
-        pose.position.y = -0.45
-
-        # center of cylinder
-        pose.position.z = 0.8
-
-        pose.orientation.w = 1.0
-
-        # -------------------------------------------------
-        # ADD OBJECT
-        # -------------------------------------------------
-        obj.primitives.append(cylinder)
-
-        obj.primitive_poses.append(pose)
-
-        obj.operation = CollisionObject.ADD
-
-        scene.world.collision_objects.append(obj)
-
-        # -------------------------------------------------
-        # PUBLISH
-        # -------------------------------------------------
-        self.scene_pub.publish(scene)
-
-        self.get_logger().info(
-            "Small cylinder added ✔"
+        self.marker_pub = self.create_publisher(
+            MarkerArray,
+            "/visualization_marker_array",
+            qos
         )
 
+        self.add_cylinder()
+        self.add_leaves()
+
+    # -------------------------------------------------
+    # OBSTACLE
+    # -------------------------------------------------
+    def add_cylinder(self):
+
+        scene = PlanningScene()
+        scene.is_diff = True
+
+        collision = CollisionObject()
+        collision.id = "obstacle"
+        collision.header.frame_id = "base_footprint"
+
+        primitive = SolidPrimitive()
+        primitive.type = SolidPrimitive.CYLINDER
+        primitive.dimensions = [1.6, 0.015]
+
+        pose = PoseStamped()
+        pose.header.frame_id = "base_footprint"
+        pose.pose.position.x = 0.3
+        pose.pose.position.y = -0.45
+        pose.pose.position.z = 0.8
+        pose.pose.orientation.w = 1.0
+
+        collision.primitives.append(primitive)
+        collision.primitive_poses.append(pose.pose)
+        collision.operation = CollisionObject.ADD
+
+        scene.world.collision_objects.append(collision)
+
+        self.scene_pub.publish(scene)
+
+        self.get_logger().info("Cylinder added ✔")
         time.sleep(2)
 
     # -------------------------------------------------
-    # MOVE TO JOINT POSITION
+    # LEAVES
     # -------------------------------------------------
-    def move_to_position(self, joints, motion_name="PTP_MOVE"):
+    # -------------------------------------------------
+# LEAVES (VISUAL ONLY)
+# -------------------------------------------------
+    def add_leaves(self):
+
+        marker_array = MarkerArray()
+
+        GOLDEN_ANGLE = math.radians(137.5)
+
+        NUM_LEAVES = 24
+        TOTAL_HEIGHT = 1.35
+        LEAF_RADIUS = 0.055
+
+        START_ANGLE = math.pi
+
+        for i in range(NUM_LEAVES):
+
+            marker = Marker()
+
+            marker.header.frame_id = "base_footprint"
+            marker.header.stamp = self.get_clock().now().to_msg()
+
+            marker.ns = "leaves"
+            marker.id = i
+
+            marker.type = Marker.CUBE
+            marker.action = Marker.ADD
+
+            marker.lifetime.sec = 0
+
+            theta = START_ANGLE + i * GOLDEN_ANGLE
+
+            z = 0.20 + (i / NUM_LEAVES) * TOTAL_HEIGHT
+
+            x = 0.3 + LEAF_RADIUS * math.cos(theta)
+            y = -0.45 + LEAF_RADIUS * math.sin(theta)
+
+            marker.pose.position.x = x
+            marker.pose.position.y = y
+            marker.pose.position.z = z
+
+            yaw = theta + math.pi
+
+            q = self.euler_to_quaternion(0, 0, yaw)
+
+            marker.pose.orientation = q
+
+            # bigger temporary debug size
+            marker.scale.x = 0.06
+            marker.scale.y = 0.03
+            marker.scale.z = 0.01
+
+            # bright green debug color
+            marker.color.r = 1.0
+            marker.color.g = 0.45
+            marker.color.b = 0.0
+            marker.color.a = 1.0
+
+            marker_array.markers.append(marker)
+
+        self.marker_pub.publish(marker_array)
+
+        self.get_logger().info("All visual leaves added ✔")
+    
+    # -------------------------------------------------
+# ENABLE SINGLE LEAF COLLISION
+# -------------------------------------------------
+    def enable_leaf_collision(self, leaf_id, x, y, z, theta):
+
+        scene = PlanningScene()
+        scene.is_diff = True
+
+        leaf = CollisionObject()
+
+        leaf.id = leaf_id
+        leaf.header.frame_id = "base_footprint"
+
+        primitive = SolidPrimitive()
+        primitive.type = SolidPrimitive.BOX
+
+        # same leaf dimensions
+        primitive.dimensions = [0.06, 0.015, 0.005]
+
+        pose = PoseStamped()
+        pose.header.frame_id = "base_footprint"
+
+        pose.pose.position.x = x
+        pose.pose.position.y = y
+        pose.pose.position.z = z
+
+        yaw = theta + math.pi
+
+        q = self.euler_to_quaternion(0, 0, yaw)
+
+        pose.pose.orientation = q
+
+        leaf.primitives.append(primitive)
+        leaf.primitive_poses.append(pose.pose)
+
+        leaf.operation = CollisionObject.ADD
+
+        scene.world.collision_objects.append(leaf)
+
+        self.scene_pub.publish(scene)
+
+        self.get_logger().info(f"{leaf_id} collision enabled ✔")
+
+    # -------------------------------------------------
+    # ENABLE TARGET LEAF BY INDEX
+    # -------------------------------------------------
+    def enable_leaf_by_index(self, index):
+
+        GOLDEN_ANGLE = math.radians(137.5)
+
+        NUM_LEAVES = 24
+        TOTAL_HEIGHT = 1.35
+        LEAF_RADIUS = 0.055
+
+        START_ANGLE = math.pi
+
+        theta = START_ANGLE + index * GOLDEN_ANGLE
+
+        z = 0.20 + (index / NUM_LEAVES) * TOTAL_HEIGHT
+
+        x = 0.3 + LEAF_RADIUS * math.cos(theta)
+        y = -0.45 + LEAF_RADIUS * math.sin(theta)
+
+        self.enable_leaf_collision(
+            f"leaf_{index}",
+            x,
+            y,
+            z,
+            theta
+        )
+    # -------------------------------------------------
+    # ATTACH LEAF (KEY PART)
+    # -------------------------------------------------
+    def attach_leaf(self, leaf_id):
+
+        scene_pub = self.create_publisher(PlanningScene, "/planning_scene", 10)
+
+        attached = AttachedCollisionObject()
+        attached.object.id = leaf_id
+        attached.object.header.frame_id = "base_footprint"
+        attached.object.operation = CollisionObject.ADD
+
+        attached.link_name = "J_6"  # IMPORTANT: change if needed
+
+        scene = PlanningScene()
+        scene.is_diff = True
+        scene.robot_state.attached_collision_objects.append(attached)
+
+        scene_pub.publish(scene)
+
+        self.get_logger().info(f"Leaf {leaf_id} attached ✔")
+
+    # -------------------------------------------------
+    # REMOVE SINGLE LEAF MARKER
+    # -------------------------------------------------
+    def remove_leaf_marker(self, index):
+
+        marker_array = MarkerArray()
+
+        marker = Marker()
+
+        marker.header.frame_id = "base_footprint"
+
+        marker.ns = "leaves"
+        marker.id = index
+
+        marker.action = Marker.DELETE
+
+        marker_array.markers.append(marker)
+
+        self.marker_pub.publish(marker_array)
+
+        self.get_logger().info(f"leaf_{index} visual removed ✔")
+
+    # -------------------------------------------------
+    # GRIPPER
+    # -------------------------------------------------
+    def move_gripper(self, position):
+
+        goal = FollowJointTrajectory.Goal()
+
+        traj = JointTrajectory()
+        traj.joint_names = ["left_finger_joint"]
+
+        point = JointTrajectoryPoint()
+        point.positions = [position]
+        point.time_from_start.sec = 1
+
+        traj.points.append(point)
+        goal.trajectory = traj
+
+        send_future = self.gripper_client.send_goal_async(goal)
+        rclpy.spin_until_future_complete(self, send_future)
+
+        goal_handle = send_future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error("Gripper rejected ❌")
+            return
+
+        result_future = goal_handle.get_result_async()
+        rclpy.spin_until_future_complete(self, result_future)
+
+        self.get_logger().info("Gripper done ✔")
+    
+    def pluck_motion(self, current_pose):
+        """
+        Adds real plucking behavior:
+        - slight downward tilt
+        - half rotation
+        - lift
+        """
+
+        # unpack current joints
+        j = list(current_pose)
+
+        # 1. small downward tilt (wrist_1_joint)
+        tilt_pose = j.copy()
+        tilt_pose[3] += 0.4   # pitch down
+
+        self.move_to_joints(tilt_pose, "TILT_DOWN")
+
+        # 2. half rotation (wrist_3_joint)
+        twist_pose = tilt_pose.copy()
+        twist_pose[5] += math.pi / 2   # 90° twist
+
+        self.move_to_joints(twist_pose, "TWIST")
+
+        # 3. slight pull upward
+        lift_pose = twist_pose.copy()
+        lift_pose[2] += 0.05  # small lift in joint-space approximation
+
+        self.move_to_joints(lift_pose, "LIFT_AFTER_PLUCK")
+
+    # -------------------------------------------------
+    # MOVE
+    # -------------------------------------------------
+    def move_to_joints(self, joints, name):
 
         goal = MoveGroup.Goal()
 
-        # -------------------------------------------------
-        # MOVE GROUP
-        # -------------------------------------------------
         goal.request.group_name = "arm"
-
-        # -------------------------------------------------
-        # PILZ INDUSTRIAL PLANNER
-        # -------------------------------------------------
-        goal.request.pipeline_id = (
-            "pilz_industrial_motion_planner"
-        )
-
+        goal.request.pipeline_id = "pilz_industrial_motion_planner"
         goal.request.planner_id = "PTP"
 
-        # -------------------------------------------------
-        # SPEED
-        # -------------------------------------------------
-        goal.request.max_velocity_scaling_factor = 0.2
+        goal.request.max_velocity_scaling_factor = 0.3
+        goal.request.max_acceleration_scaling_factor = 0.3
 
-        goal.request.max_acceleration_scaling_factor = 0.2
-
-        # -------------------------------------------------
-        # JOINT NAMES
-        # -------------------------------------------------
         joint_names = [
-
+            
             "ROT_1",
             "PITCH_1",
             "PITCH_2",
@@ -160,179 +369,126 @@ class IndustrialMotion(Node):
             "ROT_3"
         ]
 
-        # -------------------------------------------------
-        # CONSTRAINTS
-        # -------------------------------------------------
         constraints = Constraints()
 
         for i in range(6):
-
             jc = JointConstraint()
-
             jc.joint_name = joint_names[i]
-
             jc.position = float(joints[i])
-
-            jc.tolerance_above = 0.001
-            jc.tolerance_below = 0.001
-
+            jc.tolerance_above = 0.01
+            jc.tolerance_below = 0.01
             jc.weight = 1.0
-
             constraints.joint_constraints.append(jc)
 
-        goal.request.goal_constraints.append(
-            constraints
-        )
+        goal.request.goal_constraints.append(constraints)
 
-        # -------------------------------------------------
-        # SEND GOAL
-        # -------------------------------------------------
-        self.get_logger().info(
-            f"Executing {motion_name}..."
-        )
-
-        send_future = self.client.send_goal_async(
-            goal
-        )
-
-        rclpy.spin_until_future_complete(
-            self,
-            send_future
-        )
+        send_future = self.client.send_goal_async(goal)
+        rclpy.spin_until_future_complete(self, send_future)
 
         goal_handle = send_future.result()
-
-        # -------------------------------------------------
-        # CHECK ACCEPTED
-        # -------------------------------------------------
         if not goal_handle.accepted:
-
-            self.get_logger().error(
-                f"{motion_name} rejected ❌"
-            )
-
+            self.get_logger().error(f"{name} rejected ❌")
             return
 
-        # -------------------------------------------------
-        # WAIT RESULT
-        # -------------------------------------------------
         result_future = goal_handle.get_result_async()
+        rclpy.spin_until_future_complete(self, result_future)
 
-        rclpy.spin_until_future_complete(
-            self,
-            result_future
-        )
-
-        self.get_logger().info(
-            f"{motion_name} completed ✔"
-        )
-
-        # IMPORTANT:
-        # small pause for state update
-        time.sleep(1)
+        self.get_logger().info(f"{name} done ✔")
 
     # -------------------------------------------------
-    # RUN MOTIONS
+    # RUN PICK PIPELINE
     # -------------------------------------------------
     def run(self):
+        # target leaf
+        target_leaf = 14
 
-        # -------------------------------------------------
-        # POSITIONS
-        # -------------------------------------------------
-        home = [ 0.0,0.0,0.0,0.0,0.0,0.0]
+        # remove visual marker
+        self.remove_leaf_marker(target_leaf)
 
-        p1 = [0.122,0.368,-2.312,1.194,-0.090,0.00]
-        p2 = [-0.425,-1.249,0.00,1.910,-1.030,0.00]
-        p1 = [0.122,0.368,-2.312,1.194,-0.090,0.00]
-        p3 = [-1.712,-0.374,-1.558,1.213,-2.978,0.000]
-        p4 = [-1.656,-0.225,-1.235,1.680,-3.100,0.00]
-        p5 = [0.179,0.534,-1.878,1.774,-0.085,0.00]
-        p6 = [-0.364,-0.836,-0.394,1.831,-0.904,0.00]
-        # -------------------------------------------------
-        # EXECUTE SEQUENCE
-        # -------------------------------------------------
+        # enable collision version
+        self.enable_leaf_by_index(target_leaf)
 
-        # clean startup home
-        self.move_to_position(
-            home,
-            "START_HOME"
-        )
+        # enable collision for target leaf
+        self.enable_leaf_by_index(1)
 
-        # move to P1
-        self.move_to_position(
-            p1,
-            "P1"
-        )
+        p2 = [0.122,0.368,-2.312,1.194,-0.090,0.00]
+        
+        leaf_pose = [0.817, -0.230, 1.362, 0.441, 0.275, 0.0]
 
-        # move to P2
-        self.move_to_position(
-            p2,
-            "P2"
-        )
+        r2 = [0.817, -0.215, 1.362, 0.441, 0.275, 0.0]
 
-        # move to P1
-        self.move_to_position(
-            p1,
-            "P1"
-        )
+        home = [0, 0, 0, 0, 0, 0]
 
-         # move to P3
-        self.move_to_position(
-            p3,
-            "P3"
-        )
+        sequence = [
+            ("P2", p2),
 
-         # move to P4
-        self.move_to_position(
-            p4,
-            "P4"
-        )
+            ("GRIP_OPEN", None),
 
-         # move to P5
-        self.move_to_position(
-            p5,
-            "P5"
-        )
+            #("APPROACH", leaf_pose),
 
-         # move to P4
-        self.move_to_position(
-            p6,
-            "P6"
-        )
+            ("GRIP_CLOSE", None),
 
-        # IMPORTANT:
-        # intermediate safe pose
-        self.move_to_position(
-            p1,
-            "RETURN_P1"
-        )
+            #("ATTACH", "leaf_1"),
 
-        # final return home
-        self.move_to_position(
-            home,
-            "RETURN_HOME"
-        )
+            #("R2", r2),
 
-        self.get_logger().info(
-            "Program completed ✔"
-        )
+            #("TWIST_TEST", leaf_pose),
+
+            #("LIFT", p2),
+
+            #("HOME", home),
+        ]
+
+        for name, data in sequence:
+
+            if name == "GRIP_OPEN":
+                self.move_gripper(0.0)
+                continue
+
+            if name == "GRIP_CLOSE":
+                self.move_gripper(0.035)
+                continue
+
+            if name == "ATTACH":
+                self.attach_leaf(data)
+                continue
+            
+            if name == "TWIST_TEST":
+
+                test_pose = data.copy()
+
+                # rotate wrist_3_joint
+                test_pose[5] += math.pi / 2
+
+                self.move_to_joints(test_pose, "TWIST_TEST")
+
+                continue
+
+            self.move_to_joints(data, name)
+
+        self.get_logger().info("PICK COMPLETE ✔")
+
+    # -------------------------------------------------
+    # QUAT
+    # -------------------------------------------------
+    def euler_to_quaternion(self, roll, pitch, yaw):
+
+        q = Quaternion()
+
+        q.x = math.sin(roll/2) * math.cos(pitch/2) * math.cos(yaw/2) - math.cos(roll/2) * math.sin(pitch/2) * math.sin(yaw/2)
+        q.y = math.cos(roll/2) * math.sin(pitch/2) * math.cos(yaw/2) + math.sin(roll/2) * math.cos(pitch/2) * math.sin(yaw/2)
+        q.z = math.cos(roll/2) * math.cos(pitch/2) * math.sin(yaw/2) - math.sin(roll/2) * math.sin(pitch/2) * math.cos(yaw/2)
+        q.w = math.cos(roll/2) * math.cos(pitch/2) * math.cos(yaw/2) + math.sin(roll/2) * math.sin(pitch/2) * math.sin(yaw/2)
+
+        return q
 
 
-# -------------------------------------------------
-# MAIN
-# -------------------------------------------------
 def main(args=None):
-
     rclpy.init(args=args)
-
-    node = IndustrialMotion()
-
+    node = MoveWithMoveIt()
     node.run()
-
     rclpy.spin(node)
-
     node.destroy_node()
-
     rclpy.shutdown()
 
 
