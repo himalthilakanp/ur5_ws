@@ -7,8 +7,8 @@
   <color rgba="0.7451 0.73725 0.72941 1"/>
 </material>
 
-<material name="blue">
-  <color rgba="0.7451 0.73725 0.72941 1"/>
+<material name="green">
+  <color rgba="0 1 0 1"/>
 </material>
 
   <!-- ================= BASE FOOTPRINT ================= -->
@@ -186,7 +186,7 @@
       <geometry>
         <mesh filename="package://leaf_robot_description/meshes/J_4.STL"/>
       </geometry>
-      <material name="blue"/>
+      <material name="gray"/>
     </visual>
 
     <collision>
@@ -224,7 +224,7 @@
       <geometry>
         <mesh filename="package://leaf_robot_description/meshes/J_5.STL"/>
       </geometry>
-      <material name="blue"/>
+      <material name="gray"/>
     </visual>
 
     <collision>
@@ -244,41 +244,86 @@
   </joint>
 
   <!-- ================= LINK J6 ================= -->
+  <joint name="ROT_3" type="revolute">
+    <parent link="J_5"/>
+    <child link="J_6"/>
+    <origin xyz="-0.0015905 -0.0042271 -0.078525" rpy="0 0 -0.353599"/>
+    <axis xyz="0 1 0"/>
+    <limit effort="50" velocity="1.0" lower="-6.28" upper="6.28"/>
+  </joint>
+
   <link name="J_6">
-    <inertial>
-      <origin xyz="2.7717E-06 -2.0096E-05 -0.080219" rpy="0 0 0"/>
-      <mass value="0.14576"/>
-      <inertia
-        ixx="0.00028918"
-        ixy="-2.2998E-06"
-        ixz="4.0193E-08"
-        iyy="0.00029007"
-        iyz="-4.6894E-08"
-        izz="0.00011651"/>
-    </inertial>
-
     <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://leaf_robot_description/meshes/J_6.STL"/>
-      </geometry>
-      <material name="blue"/>
+      <geometry><cylinder length="0.1" radius="0.03"/></geometry>
+      <origin xyz="0 0 0" rpy="-1.5708 0 0"/>
+      <material name="gray"/>
     </visual>
-
     <collision>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <mesh filename="package://leaf_robot_description/meshes/J_6.STL"/>
-      </geometry>
+      <geometry><box size="0.04 0.02 0.02"/></geometry>
+      <origin xyz="0 0 0" rpy="-1.5708 0 0"/>
     </collision>
   </link>
 
-  <joint name="ROT_3" type="revolute">
-    <origin xyz="-0.00088397 -0.0023385 -0.0725" rpy="1.5708 -0.70269 2.7802"/>
-    <parent link="J_5"/>
-    <child link="J_6"/>
-    <axis xyz="0 0 1"/>
-    <limit lower="-3.14" upper="3.14" effort="10" velocity="1.0"/>
+  <!-- ========================= -->
+  <!-- GRIPPER BASE -->
+  <!-- ========================= -->
+
+  <joint name="Gripper" type="fixed">
+    <parent link="J_6"/>
+    <child link="gripper_base_link"/>
+    <origin xyz="0 -0.06 0" rpy="1.5708 0 0"/>
   </joint>
+
+  <link name="gripper_base_link">
+    <visual>
+      <geometry>
+        <box size="0.02 0.06 0.02"/>
+      </geometry>
+      <material name="gray"/>
+    </visual>
+  </link>
+
+  <!-- LEFT FINGER -->
+
+  <joint name="left_finger_joint" type="prismatic">
+    <parent link="gripper_base_link"/>
+    <child link="left_finger"/>
+    <origin xyz="0 0.025 0"/>
+    <axis xyz="0 -1 0"/>
+    <limit lower="0.0" upper="0.02"
+           effort="10" velocity="0.1"/>
+  </joint>
+
+  <link name="left_finger">
+    <visual>
+      <geometry>
+        <box size="0.02 0.01 0.235"/>
+      </geometry>
+      <origin xyz="0 0 0.1175"/>
+      <material name="green"/>
+    </visual>
+  </link>
+
+  <!-- RIGHT FINGER -->
+
+  <joint name="right_finger_joint" type="prismatic">
+    <parent link="gripper_base_link"/>
+    <child link="right_finger"/>
+    <origin xyz="0 -0.025 0"/>
+    <axis xyz="0 -1 0"/>
+    <mimic joint="left_finger_joint" multiplier="-1.0"/>
+    <limit lower="0.0" upper="0.02"
+           effort="10" velocity="0.1"/>
+  </joint>
+
+  <link name="right_finger">
+    <visual>
+      <geometry>
+        <box size="0.02 0.01 0.235"/>
+      </geometry>
+      <origin xyz="0 0 0.1175"/>
+      <material name="green"/>
+    </visual>
+  </link> 
 
 </robot>

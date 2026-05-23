@@ -7,10 +7,11 @@ Panels:
         - /MotionPlanning1
         - /MotionPlanning1/Scene Robot1
         - /MotionPlanning1/Planning Request1
-        - /MotionPlanning1/Planning Metrics1
         - /MotionPlanning1/Planned Path1
+        - /MarkerArray1
+        - /MarkerArray1/Topic1
       Splitter Ratio: 0.5
-    Tree Height: 156
+    Tree Height: 144
   - Class: rviz_common/Help
     Name: Help
   - Class: rviz_common/Views
@@ -69,48 +70,63 @@ Visualization Manager:
           Expand Joint Details: false
           Expand Link Details: false
           Expand Tree: false
-          J_1:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          J_2:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          J_3:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          J_4:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          J_5:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          J_6:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
           Link Tree Style: Links in Alphabetic Order
-          base_footprint:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
           base_link:
             Alpha: 1
             Show Axes: false
             Show Trail: false
             Value: true
+          gripper_base_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_finger:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          link1:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          link2:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          link3:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          link4:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          link5:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          right_finger:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          tool0:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          world:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
         Loop Animation: false
-        Robot Alpha: 0.5
+        Robot Alpha: 1
         Robot Color: 150; 50; 150
         Show Robot Collision: false
         Show Robot Visual: false
@@ -154,55 +170,82 @@ Visualization Manager:
           Expand Joint Details: false
           Expand Link Details: false
           Expand Tree: false
-          J_1:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          J_2:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          J_3:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          J_4:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          J_5:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
-          J_6:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
-            Value: true
           Link Tree Style: Links in Alphabetic Order
-          base_footprint:
-            Alpha: 1
-            Show Axes: false
-            Show Trail: false
           base_link:
             Alpha: 1
             Show Axes: false
             Show Trail: false
             Value: true
+          gripper_base_link:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          left_finger:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          link1:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          link2:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          link3:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          link4:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          link5:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          right_finger:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          tool0:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
+            Value: true
+          world:
+            Alpha: 1
+            Show Axes: false
+            Show Trail: false
         Robot Alpha: 1
         Show Robot Collision: false
         Show Robot Visual: true
       Value: true
       Velocity_Scaling_Factor: 0.1
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: MarkerArray
+      Namespaces:
+        leaves: true
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /visualization_marker_array
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: base_footprint
+    Fixed Frame: world
     Frame Rate: 30
   Name: root
   Tools:
@@ -217,7 +260,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 3.9023280143737793
+      Distance: 3.38045334815979
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -232,15 +275,15 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.3947974443435669
-      Target Frame: base_footprint
+      Pitch: 0.4450000524520874
+      Target Frame: world
       Value: Orbit (rviz_default_plugins)
-      Yaw: 6.08018684387207
+      Yaw: 5.020186901092529
     Saved: ~
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 1011
+  Height: 975
   Help:
     collapsed: false
   Hide Left Dock: false
@@ -249,9 +292,9 @@ Window Geometry:
     collapsed: false
   MotionPlanning - Trajectory Slider:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd0000000100000000000002b400000395fc0200000005fb00000044004d006f00740069006f006e0050006c0061006e006e0069006e00670020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000004400fffffffb000000100044006900730070006c006100790073010000003f00000122000000cc00fffffffb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e00670100000167000001b20000019600fffffffb0000000800480065006c0070000000029a0000006e0000006f00fffffffb0000000a00560069006500770073010000031f000000b5000000a900ffffff000004840000039500000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000100000000000002b400000371fc0200000005fb00000044004d006f00740069006f006e0050006c0061006e006e0069006e00670020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000004400fffffffb000000100044006900730070006c006100790073010000003f00000116000000cc00fffffffb0000001c004d006f00740069006f006e0050006c0061006e006e0069006e0067010000015b000001a10000019600fffffffb0000000800480065006c0070000000029a0000006e0000006f00fffffffb0000000a005600690065007700730100000302000000ae000000a900ffffff000001f60000037100000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Views:
     collapsed: false
-  Width: 1854
-  X: 66
+  Width: 1200
+  X: 116
   Y: 32
