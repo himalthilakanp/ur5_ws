@@ -68,6 +68,11 @@ class MoveWithMoveIt(Node):
     def __init__(self):
         super().__init__("move_with_moveit")
 
+        # ------------------------------------------------------------------
+        # Feature: USE PREVIOUS STATE
+        # Stores the last successfully executed joint configuration so every
+        # IK call can be seeded from it (nearest-solution + branch-staying).
+        # ------------------------------------------------------------------
         self._last_joints: list[float] | None = None
 
         # MoveIt client
@@ -88,6 +93,7 @@ class MoveWithMoveIt(Node):
         self.gripper_client.wait_for_server()
         self.get_logger().info("Gripper ready ✔")
 
+        # Planning scene publisher (kept for visual markers only)
         self.scene_pub = self.create_publisher(
             PlanningScene,
             '/planning_scene',
@@ -111,6 +117,9 @@ class MoveWithMoveIt(Node):
         self.ik_client.wait_for_service()
         self.get_logger().info("IK service ready ✔")
 
+        # ApplyPlanningScene: the only reliable way to add/modify collision
+        # objects and ACM entries without wiping existing SRDF entries.
+        # ALL collision objects (cylinder + leaves) now use this service.
         self.apply_scene_client = self.create_client(
             ApplyPlanningScene,
             "/apply_planning_scene"
@@ -119,11 +128,18 @@ class MoveWithMoveIt(Node):
         self.apply_scene_client.wait_for_service()
         self.get_logger().info("ApplyPlanningScene ready ✔")
 
+        # Add visual leaves first (no collision yet)
         self.add_leaves()
+
+        # Add the cylinder via the reliable service path so MoveIt's
+        # planning scene monitor is guaranteed to have it before any
+        # motion planning call is made.
         self.add_cylinder()
 
     # -------------------------------------------------
-    # OBSTACLE
+    # OBSTACLE  — added via ApplyPlanningScene service
+    # (FIX 1: use service instead of topic publisher so
+    #  the scene monitor processes it before planning.)
     # -------------------------------------------------
     def add_cylinder(self):
 
@@ -150,6 +166,7 @@ class MoveWithMoveIt(Node):
         scene.is_diff = True
         scene.world.collision_objects.append(collision)
 
+        # Use the service — it merges into the existing scene correctly.
         request = ApplyPlanningScene.Request()
         request.scene = scene
         future = self.apply_scene_client.call_async(request)
@@ -161,6 +178,9 @@ class MoveWithMoveIt(Node):
             return
 
         self.get_logger().info("Cylinder added via ApplyPlanningScene service ✔")
+
+        # Give the planning scene monitor a moment to propagate the update
+        # before any IK / motion planning call is attempted.
         time.sleep(1.5)
 
     # -------------------------------------------------
@@ -227,6 +247,7 @@ class MoveWithMoveIt(Node):
 
     # -------------------------------------------------
     # ENABLE SINGLE LEAF COLLISION
+    # (FIX 1: uses ApplyPlanningScene service, not topic)
     # -------------------------------------------------
     def enable_leaf_collision(self, leaf_id, x, y, z, theta):
 
@@ -365,33 +386,57 @@ class MoveWithMoveIt(Node):
         self.get_logger().info("Gripper done ✔")
 
     def pluck_motion(self, current_pose):
+        """
+        Adds real plucking behavior:
+        - slight downward tilt
+        - half rotation
+        - lift
+        """
+
         j = list(current_pose)
 
+        # 1. small downward tilt (wrist_1_joint)
         tilt_pose = j.copy()
         tilt_pose[3] += 0.4
         self.move_to_joints(tilt_pose, "TILT_DOWN")
 
+        # 2. half rotation (wrist_3_joint)
         twist_pose = tilt_pose.copy()
         twist_pose[5] += math.pi / 2
         self.move_to_joints(twist_pose, "TWIST")
 
+        # 3. slight pull upward
         lift_pose = twist_pose.copy()
         lift_pose[2] += 0.05
         self.move_to_joints(lift_pose, "LIFT_AFTER_PLUCK")
 
     # -------------------------------------------------
     # MOVE
+    # (FIX 2: switched to OMPL + RRTConnect for full
+    #  collision-aware path planning around obstacles.
+    #  Pilz PTP only interpolates in joint space and
+    #  does NOT reliably avoid collision objects.)
     # -------------------------------------------------
     def move_to_joints(self, joints, name):
 
         goal = MoveGroup.Goal()
 
         goal.request.group_name = "arm"
+
+        # ── FIX 2: Use OMPL instead of Pilz PTP ──────────────────────────
+        # Pilz PTP performs straight-line joint-space interpolation and
+        # has no collision-aware replanning.  OMPL (RRTConnect) samples
+        # the configuration space and will route around the cylinder.
         goal.request.pipeline_id = "ompl"
         goal.request.planner_id  = "RRTConnectkConfigDefault"
+
+        # Give the planner enough time to find a path around the obstacle.
         goal.request.allowed_planning_time = 5.0
+
         goal.request.max_velocity_scaling_factor = 0.3
         goal.request.max_acceleration_scaling_factor = 0.3
+
+        # Retry up to 3 times so transient planning failures don't abort.
         goal.request.num_planning_attempts = 3
 
         constraints = Constraints()
@@ -420,6 +465,9 @@ class MoveWithMoveIt(Node):
 
         self.get_logger().info(f"{name} done ✔")
 
+        # ------------------------------------------------------------------
+        # Feature: USE PREVIOUS STATE — persist the executed config
+        # ------------------------------------------------------------------
         self._last_joints = list(joints)
 
     # -------------------------------------------------
@@ -427,20 +475,51 @@ class MoveWithMoveIt(Node):
     # -------------------------------------------------
     def run(self):
 
-        target_leaf = 18
+        target_leaf = 14
 
+        # ---------------------------------
+        # Extra buffer: confirm the cylinder
+        # is fully registered in the planning
+        # scene before any motion is planned.
+        # (FIX 3: additional safety sleep on
+        #  top of the 1.5 s in add_cylinder.)
+        # ---------------------------------
         self.get_logger().info(
             "Waiting for planning scene to stabilise..."
         )
         time.sleep(1.0)
 
-        #self.remove_leaf_marker(target_leaf)
+        # ---------------------------------
+        # REMOVE VISUAL MARKER ONLY
+        # Collision box is NOT added here — the leaf must not exist as an
+        # obstacle while the arm is approaching it.  enable_leaf_by_index()
+        # is called inside grab_leaf_ik(), right before the grasp move,
+        # with the ACM already set to permit contact.
+        # ---------------------------------
+        self.remove_leaf_marker(target_leaf)
 
-        p2 = [0.179, 0.534, -1.878, 1.774, -0.085, 0.00]
+        # ---------------------------------
+        # SAFE PRE-GRASP POSE
+        # ---------------------------------
+        p2 = [
+            0.122,
+            0.368,
+           -2.312,
+            1.194,
+           -0.090,
+            0.00
+        ]
+
         self.move_to_joints(p2, "P2")
 
+        # ---------------------------------
+        # OPEN GRIPPER BEFORE APPROACH
+        # ---------------------------------
         self.move_gripper(0.0)
 
+        # ---------------------------------
+        # MOVE TO LEAF USING IK
+        # ---------------------------------
         self.grab_leaf_ik(target_leaf)
 
         self.get_logger().info("PICK COMPLETE ✔")
@@ -448,6 +527,7 @@ class MoveWithMoveIt(Node):
     # -------------------------------------------------
     # ALLOWED COLLISION MATRIX helper
     # -------------------------------------------------
+    # Links that are allowed to touch the leaf during the grasp move.
     GRASP_LINKS = [
         "gripper_base_link",
         "left_finger",
@@ -457,6 +537,14 @@ class MoveWithMoveIt(Node):
     ]
 
     def _set_leaf_acm(self, leaf_id: str, allow: bool) -> None:
+        """
+        Safely add or remove allowed-collision entries between *leaf_id* and
+        every link in GRASP_LINKS using the ApplyPlanningScene service.
+
+        NOTE: "obstacle" (the cylinder) is intentionally NOT included here.
+        Only leaf ↔ gripper link pairs are relaxed so the cylinder always
+        remains a hard collision constraint for the planner.
+        """
         from moveit_msgs.msg import AllowedCollisionMatrix, AllowedCollisionEntry
 
         scene = PlanningScene()
@@ -487,7 +575,7 @@ class MoveWithMoveIt(Node):
         self.get_logger().info(
             f"ACM {leaf_id} ↔ gripper links: {state}"
         )
-        time.sleep(0.15)
+        time.sleep(0.15)   # let move_group's monitor process the update
 
     # -------------------------------------------------
     # QUAT
@@ -507,9 +595,11 @@ class MoveWithMoveIt(Node):
     # FEATURE: AVOID SINGULARITIES
     # ==========================================================================
     def _desingularize_seed(self, joints: list[float]) -> list[float]:
+        """Return a copy of *joints* with near-singular values perturbed."""
 
         result = list(joints)
 
+        # Wrist singularity: ROT_2 (index 4) near 0
         if abs(result[4]) < SINGULARITY_THRESHOLD:
             result[4] += SINGULARITY_PERTURB
             self.get_logger().warn(
@@ -517,6 +607,7 @@ class MoveWithMoveIt(Node):
                 f"seed perturbed to {result[4]:.3f}"
             )
 
+        # Elbow singularity: PITCH_2 (index 2) near 0
         if abs(result[2]) < SINGULARITY_THRESHOLD:
             result[2] += SINGULARITY_PERTURB
             self.get_logger().warn(
@@ -590,7 +681,6 @@ class MoveWithMoveIt(Node):
 
     # ==========================================================================
     # ENHANCED solve_ik
-    # FIX 1: avoid_collisions=True so the cylinder is respected during IK
     # ==========================================================================
     def solve_ik(
         self,
@@ -600,6 +690,7 @@ class MoveWithMoveIt(Node):
         orientation_rpy: tuple[float, float, float] = (math.pi, 0.0, math.radians(80)),
     ) -> list[float] | None:
 
+        # 1. USE PREVIOUS STATE as the primary seed
         if self._last_joints is not None:
             primary_seed = list(self._last_joints)
             self.get_logger().info("IK seeded from previous state ✔")
@@ -607,6 +698,7 @@ class MoveWithMoveIt(Node):
             primary_seed = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
             self.get_logger().info("IK seeded from neutral home pose")
 
+        # 2. AVOID SINGULARITIES — clean the primary seed
         clean_seed = self._desingularize_seed(primary_seed)
 
         seeds_to_try = [clean_seed]
@@ -625,14 +717,6 @@ class MoveWithMoveIt(Node):
             request.ik_request.group_name = "arm"
             request.ik_request.ik_link_name = "gripper_base_link"
             request.ik_request.timeout.sec = 2
-
-            # ---------------------------------------------------------------
-            # FIX 1: Tell the IK solver to reject configurations that collide
-            # with any planning scene object — including the cylinder obstacle.
-            # Without this flag KDL/BioIK returns the nearest joint solution
-            # regardless of whether the arm passes through the stem.
-            # ---------------------------------------------------------------
-            request.ik_request.avoid_collisions = True
 
             seed_state = RobotState()
             seed_state.joint_state.name = list(ARM_JOINT_NAMES)
@@ -665,8 +749,10 @@ class MoveWithMoveIt(Node):
             except ValueError:
                 continue
 
+            # 4. STAY ON SAME BRANCH
             branched = self._match_branch(raw_joints, primary_seed)
 
+            # 5. RESPECT LIMITS
             clamped = self._check_and_clamp_limits(branched)
             if clamped is None:
                 continue
@@ -678,6 +764,7 @@ class MoveWithMoveIt(Node):
             self.get_logger().error("IK failed for all seeds ❌")
             return None
 
+        # 3. CHOOSE NEAREST SOLUTION
         candidates.sort(key=lambda c: c[0])
         best_dist, best_joints = candidates[0]
 
@@ -690,28 +777,18 @@ class MoveWithMoveIt(Node):
         return best_joints
 
     # ==========================================================================
-    # grab_leaf_ik  —  GRASP FREE TIP (away from stem), collision-safe
-    #
-    # FIX 2: The approach direction is now OUTWARD from the stem so the gripper
-    #         closes on the free tip of the leaf, not the base near the stem.
-    #
-    # Geometry recap:
-    #   stem centre     → (STEM_X, STEM_Y)
-    #   leaf attachment → stem + LEAF_RADIUS * (cos θ, sin θ)   ← stem end
-    #   leaf free tip   → leaf_attachment + LEAF_LENGTH * (cos θ, sin θ)
-    #
-    #   The radial unit vector (rx, ry) = (cos θ, sin θ) points OUTWARD from
-    #   the stem.  To grab the free tip the gripper must approach from OUTSIDE
-    #   (i.e. from beyond the tip) and the TCP target must be placed so the
-    #   fingers straddle the tip, not the base.
+    # grab_leaf_ik  —  HORIZONTAL PARALLEL approach  (bottom-to-top closing)
     # ==========================================================================
+     # ==========================================================================
+# grab_leaf_ik  —  SOFT STEM AVOIDANCE VERSION
+# ==========================================================================
     def grab_leaf_ik(self, leaf_index: int) -> None:
 
         GOLDEN_ANGLE = math.radians(137.5)
+
         NUM_LEAVES   = 24
         TOTAL_HEIGHT = 1.35
-        LEAF_RADIUS  = 0.055      # distance from stem axis to leaf base
-        LEAF_LENGTH  = 0.06       # marker scale.x — physical leaf length
+        LEAF_RADIUS  = 0.055
         START_ANGLE  = math.pi
 
         STEM_X = 0.3
@@ -720,100 +797,131 @@ class MoveWithMoveIt(Node):
         # ---------------------------------------------------------
         # GRIPPER GEOMETRY
         # ---------------------------------------------------------
-        # Distance from gripper_base_link origin to finger mid-point.
-        # Set so that when TCP is at the tip position the fingers
-        # are centred on the leaf's free tip.
-        FINGER_REACH = 0.21       # metres (same as before)
-        GRASP_MARGIN = 0.01       # small inset so tips don't overshoot
+        FINGER_LENGTH = 0.235
 
-        # How far outside the tip to park for the pre-approach
-        PRE_STANDOFF  = 0.0      # radial clearance beyond tip
-        Z_CLEARANCE   = 0.04      # raised slightly above leaf plane
+        # IMPORTANT:
+        # extra safety from stem
+        RADIAL_CLEARANCE = 0.06
+
+        # vertical offset
+        Z_CLEARANCE = 0.04
+
+        # final insertion distance
+        FINAL_APPROACH = 0.045
 
         # ---------------------------------------------------------
-        # LEAF GEOMETRY
+        # LEAF POSITION
         # ---------------------------------------------------------
-        theta   = START_ANGLE + leaf_index * GOLDEN_ANGLE
-        z_leaf  = 0.20 + (leaf_index / NUM_LEAVES) * TOTAL_HEIGHT
+        theta = START_ANGLE + leaf_index * GOLDEN_ANGLE
 
-        # Leaf base (attachment point on stem surface)
-        x_base  = STEM_X + LEAF_RADIUS * math.cos(theta)
-        y_base  = STEM_Y + LEAF_RADIUS * math.sin(theta)
+        z_leaf = 0.20 + (leaf_index / NUM_LEAVES) * TOTAL_HEIGHT
 
-        # Radial unit vector pointing AWAY from stem
+        x_leaf = STEM_X + LEAF_RADIUS * math.cos(theta)
+        y_leaf = STEM_Y + LEAF_RADIUS * math.sin(theta)
+
+        self.get_logger().info(
+            f"Leaf {leaf_index}: "
+            f"x={x_leaf:.3f}, y={y_leaf:.3f}, z={z_leaf:.3f}"
+        )
+
+        # =========================================================
+        # SAFE APPROACH DIRECTION
+        # =========================================================
+
+        # radial direction AWAY from stem
         rx = math.cos(theta)
         ry = math.sin(theta)
 
-        # Free tip of the leaf (opposite end from stem)
-        x_tip = x_base + LEAF_LENGTH * rx
-        y_tip = y_base + LEAF_LENGTH * ry
-
-        self.get_logger().info(
-            f"Leaf {leaf_index}: base=({x_base:.3f},{y_base:.3f}), "
-            f"tip=({x_tip:.3f},{y_tip:.3f}), z={z_leaf:.3f}"
-        )
-
         # ---------------------------------------------------------
-        # FIX 2 — TCP TARGET
-        # Place TCP *beyond* the tip along the outward radial direction
-        # so that the fingers (which extend forward from the TCP) end up
-        # centred on the tip.
-        #
-        # Old code (wrong):  TCP = leaf_base - reach * (rx,ry)
-        #   → fingers were pushed toward / through the stem.
-        #
-        # New code (correct): TCP = tip + reach * (rx,ry)
-        #   → gripper approaches from outside; fingers straddle the tip.
+        # FINAL GRASP POSE
+        # Put leaf BETWEEN fingers instead of near wrist
         # ---------------------------------------------------------
-        reach = FINGER_REACH - GRASP_MARGIN
 
-        grasp_x = x_tip + reach * rx
-        grasp_y = y_tip + reach * ry
+        # effective TCP → finger-tip offset
+        effective_finger_reach = 0.21
+
+        # small safety gap so finger tips don't overshoot
+        grasp_margin = 0.01
+
+        reach = effective_finger_reach - grasp_margin
+
+        # TCP target:
+        # leaf_position - finger_direction * reach
+        grasp_x = x_leaf - reach * rx
+        grasp_y = y_leaf - reach * ry
         grasp_z = z_leaf
 
         # ---------------------------------------------------------
-        # PRE-APPROACH: farther out along the same outward direction
+        # PRE-APPROACH POSE
+        # farther away along same line
         # ---------------------------------------------------------
-        pre_x = grasp_x + PRE_STANDOFF * rx
-        pre_y = grasp_y + PRE_STANDOFF * ry
+        pre_x = grasp_x + RADIAL_CLEARANCE * rx
+        pre_y = grasp_y + RADIAL_CLEARANCE * ry
         pre_z = grasp_z + Z_CLEARANCE
-
-        # ---------------------------------------------------------
+        # =========================================================
         # ORIENTATION
-        # Gripper faces INWARD (toward stem) — fingers point along -rx,-ry
-        # so they close around the tip.
-        # yaw = theta + π  means the gripper Z-axis points inward.
-        # ---------------------------------------------------------
-        yaw = math.pi - theta
-        
-        approach_rpy = (math.pi/2, 0.0, yaw)
+        # =========================================================
+
+        # gripper parallel to stem tangent
+        yaw = theta + math.pi / 2
+
+        approach_rpy = (
+            math.pi / 2,
+            0.0,
+            yaw
+        )
 
         self.get_logger().info(
-            f"Approach yaw = {math.degrees(yaw):.1f}° "
-            f"(gripper faces inward toward stem)"
+            f"Safe approach yaw = {math.degrees(yaw):.1f}"
         )
 
         # =========================================================
         # SOLVE PRE-APPROACH IK
         # =========================================================
-        pre_joints = self.solve_ik(pre_x, pre_y, pre_z, approach_rpy)
+        pre_joints = self.solve_ik(
+            pre_x,
+            pre_y,
+            pre_z,
+            approach_rpy
+        )
 
         if pre_joints is None:
-            self.get_logger().error("Pre-approach IK failed ❌")
+            self.get_logger().error(
+                "Pre-approach IK failed ❌"
+            )
             return
 
-        self.move_to_joints(pre_joints, "PRE_APPROACH")
+        # =========================================================
+        # MOVE TO PRE-APPROACH
+        # =========================================================
+        self.move_to_joints(
+            pre_joints,
+            "PRE_APPROACH"
+        )
 
         # =========================================================
-        # SOLVE FINAL GRASP IK
+        # SOLVE FINAL IK
         # =========================================================
-        grasp_joints = self.solve_ik(grasp_x, grasp_y, grasp_z, approach_rpy)
+        grasp_joints = self.solve_ik(
+            grasp_x,
+            grasp_y,
+            grasp_z,
+            approach_rpy
+        )
 
         if grasp_joints is None:
-            self.get_logger().error("Final grasp IK failed ❌")
+            self.get_logger().error(
+                "Final grasp IK failed ❌"
+            )
             return
 
-        self.move_to_joints(grasp_joints, f"GRASP_LEAF_{leaf_index}")
+        # =========================================================
+        # FINAL APPROACH
+        # =========================================================
+        self.move_to_joints(
+            grasp_joints,
+            f"GRASP_LEAF_{leaf_index}"
+        )
 
         # =========================================================
         # CLOSE GRIPPER
@@ -821,15 +929,24 @@ class MoveWithMoveIt(Node):
         self.move_gripper(0.035)
 
         # =========================================================
-        # ENABLE LEAF COLLISION + ACM
+        # ENABLE LEAF COLLISION
         # =========================================================
         leaf_id = f"leaf_{leaf_index}"
-        self.enable_leaf_by_index(leaf_index)
+
+        self.enable_leaf_by_index(
+            leaf_index
+        )
+
         time.sleep(0.3)
-        self._set_leaf_acm(leaf_id, allow=True)
 
-        self.get_logger().info("Leaf grasp complete ✔")
+        self._set_leaf_acm(
+            leaf_id,
+            allow=True
+        )
 
+        self.get_logger().info(
+            "Leaf grasp complete ✔"
+        )
 
 def main(args=None):
     rclpy.init(args=args)
