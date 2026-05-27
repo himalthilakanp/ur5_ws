@@ -10,6 +10,7 @@ from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 from moveit_msgs.srv import GetPositionIK
 from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Point
 
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
@@ -107,6 +108,13 @@ class MoveWithMoveIt(Node):
             "/compute_ik"
         )
 
+        self.leaf_markers = MarkerArray()
+
+        self.marker_timer = self.create_timer(
+            1.0,
+            self.publish_leaf_markers
+        )
+
         self.get_logger().info("Waiting for IK service...")
         self.ik_client.wait_for_service()
         self.get_logger().info("IK service ready ✔")
@@ -162,7 +170,11 @@ class MoveWithMoveIt(Node):
 
         self.get_logger().info("Cylinder added via ApplyPlanningScene service ✔")
         time.sleep(1.5)
+    
+    def publish_leaf_markers(self):
 
+        if hasattr(self, "leaf_markers"):
+            self.marker_pub.publish(self.leaf_markers)
     # -------------------------------------------------
     # LEAVES (VISUAL ONLY)
     # -------------------------------------------------
@@ -175,8 +187,23 @@ class MoveWithMoveIt(Node):
         NUM_LEAVES = 24
         TOTAL_HEIGHT = 1.35
         LEAF_RADIUS = 0.055
-
         START_ANGLE = math.pi
+
+        # -------------------------------------------------
+        # Petiole geometry
+        # -------------------------------------------------
+        PETIOLE_LENGTH = 0.06
+
+        BASE_RADIUS = 0.012
+        TIP_RADIUS = 0.004
+
+        SIDES = 20
+
+        STEM_X = 0.3
+        STEM_Y = -0.45
+
+        # 45° upward inclination
+        ELEVATION = math.radians(45)
 
         for i in range(NUM_LEAVES):
 
@@ -188,43 +215,154 @@ class MoveWithMoveIt(Node):
             marker.ns = "leaves"
             marker.id = i
 
-            marker.type = Marker.CUBE
+            marker.type = Marker.TRIANGLE_LIST
             marker.action = Marker.ADD
-
             marker.lifetime.sec = 0
 
-            theta = START_ANGLE + i * GOLDEN_ANGLE
-
-            z = 0.20 + (i / NUM_LEAVES) * TOTAL_HEIGHT
-
-            x = 0.3 + LEAF_RADIUS * math.cos(theta)
-            y = -0.45 + LEAF_RADIUS * math.sin(theta)
-
-            marker.pose.position.x = x
-            marker.pose.position.y = y
-            marker.pose.position.z = z
-
-            yaw = theta + math.pi
-
-            q = self.euler_to_quaternion(0, 0, yaw)
-
-            marker.pose.orientation = q
-
-            marker.scale.x = 0.06
-            marker.scale.y = 0.03
-            marker.scale.z = 0.01
+            marker.scale.x = 1.0
+            marker.scale.y = 1.0
+            marker.scale.z = 1.0
 
             marker.color.r = 1.0
             marker.color.g = 0.45
             marker.color.b = 0.0
             marker.color.a = 1.0
 
+            # -------------------------------------------------
+            # Spiral position
+            # -------------------------------------------------
+            theta = START_ANGLE + i * GOLDEN_ANGLE
+
+            z_center = (
+                0.20
+                + (i / NUM_LEAVES) * TOTAL_HEIGHT
+            )
+
+            # -------------------------------------------------
+            # 45° upward petiole axis
+            # -------------------------------------------------
+            horizontal_mag = math.cos(ELEVATION)
+
+            rx = horizontal_mag * math.cos(theta)
+            ry = horizontal_mag * math.sin(theta)
+            rz = math.sin(ELEVATION)
+
+            # -------------------------------------------------
+            # Stem attachment point (thick end)
+            # -------------------------------------------------
+            base_x = STEM_X + LEAF_RADIUS * math.cos(theta)
+            base_y = STEM_Y + LEAF_RADIUS * math.sin(theta)
+            base_z = z_center
+
+            # -------------------------------------------------
+            # Tip point (thin end)
+            # -------------------------------------------------
+            tip_x = base_x + PETIOLE_LENGTH * rx
+            tip_y = base_y + PETIOLE_LENGTH * ry
+            tip_z = base_z + PETIOLE_LENGTH * rz
+
+            # -------------------------------------------------
+            # Local orthonormal basis
+            # -------------------------------------------------
+
+            # axis vector
+            ax = rx
+            ay = ry
+            az = rz
+
+            # perpendicular 1
+            ux = -math.sin(theta)
+            uy = math.cos(theta)
+            uz = 0.0
+
+            # perpendicular 2 = axis × u
+            vx = ay * uz - az * uy
+            vy = az * ux - ax * uz
+            vz = ax * uy - ay * ux
+
+            # normalize v
+            norm_v = math.sqrt(vx**2 + vy**2 + vz**2)
+
+            vx /= norm_v
+            vy /= norm_v
+            vz /= norm_v
+
+            # -------------------------------------------------
+            # Build frustum
+            # -------------------------------------------------
+            for s in range(SIDES):
+
+                a0 = 2.0 * math.pi * s / SIDES
+                a1 = 2.0 * math.pi * (s + 1) / SIDES
+
+                c0 = math.cos(a0)
+                s0 = math.sin(a0)
+
+                c1 = math.cos(a1)
+                s1 = math.sin(a1)
+
+                # thick base ring
+                p0 = Point(
+                    x=base_x + BASE_RADIUS *
+                    (ux * c0 + vx * s0),
+
+                    y=base_y + BASE_RADIUS *
+                    (uy * c0 + vy * s0),
+
+                    z=base_z + BASE_RADIUS *
+                    (uz * c0 + vz * s0)
+                )
+
+                p1 = Point(
+                    x=base_x + BASE_RADIUS *
+                    (ux * c1 + vx * s1),
+
+                    y=base_y + BASE_RADIUS *
+                    (uy * c1 + vy * s1),
+
+                    z=base_z + BASE_RADIUS *
+                    (uz * c1 + vz * s1)
+                )
+
+                # thin tip ring
+                p2 = Point(
+                    x=tip_x + TIP_RADIUS *
+                    (ux * c0 + vx * s0),
+
+                    y=tip_y + TIP_RADIUS *
+                    (uy * c0 + vy * s0),
+
+                    z=tip_z + TIP_RADIUS *
+                    (uz * c0 + vz * s0)
+                )
+
+                p3 = Point(
+                    x=tip_x + TIP_RADIUS *
+                    (ux * c1 + vx * s1),
+
+                    y=tip_y + TIP_RADIUS *
+                    (uy * c1 + vy * s1),
+
+                    z=tip_z + TIP_RADIUS *
+                    (uz * c1 + vz * s1)
+                )
+
+                marker.points.extend([p0, p1, p2])
+                marker.points.extend([p2, p1, p3])
+
             marker_array.markers.append(marker)
 
-        self.marker_pub.publish(marker_array)
+        # -------------------------------------------------
+        # Store markers so RViz can receive them later
+        # -------------------------------------------------
+        self.leaf_markers = marker_array
 
-        self.get_logger().info("All visual leaves added ✔")
+        # Publish immediately
+        self.publish_leaf_markers()
 
+        self.get_logger().info(
+            "All 45° upward petioles added ✔"
+        )
     # -------------------------------------------------
     # ENABLE SINGLE LEAF COLLISION
     # -------------------------------------------------
@@ -235,17 +373,21 @@ class MoveWithMoveIt(Node):
         leaf.header.frame_id = "base_footprint"
 
         primitive = SolidPrimitive()
-        primitive.type = SolidPrimitive.BOX
-        primitive.dimensions = [0.06, 0.015, 0.005]
+        primitive.type = SolidPrimitive.CYLINDER
+        primitive.dimensions = [0.06, 0.006]
 
         pose = PoseStamped()
         pose.header.frame_id = "base_footprint"
+
         pose.pose.position.x = x
         pose.pose.position.y = y
         pose.pose.position.z = z
 
-        yaw = theta + math.pi
-        q = self.euler_to_quaternion(0, 0, yaw)
+        q = self.euler_to_quaternion(
+            math.pi / 2,
+            0,
+            theta
+        )
         pose.pose.orientation = q
 
         leaf.primitives.append(primitive)
@@ -258,15 +400,21 @@ class MoveWithMoveIt(Node):
 
         request = ApplyPlanningScene.Request()
         request.scene = scene
+
         future = self.apply_scene_client.call_async(request)
         rclpy.spin_until_future_complete(self, future)
+
         result = future.result()
 
         if result is None or not result.success:
-            self.get_logger().error(f"Failed to add {leaf_id} collision ❌")
+            self.get_logger().error(
+                f"Failed to add {leaf_id} collision ❌"
+            )
             return
 
-        self.get_logger().info(f"{leaf_id} collision enabled via service ✔")
+        self.get_logger().info(
+            f"{leaf_id} collision enabled ✔"
+        )
 
     # -------------------------------------------------
     # ENABLE TARGET LEAF BY INDEX
@@ -502,6 +650,16 @@ class MoveWithMoveIt(Node):
         q.w = math.cos(roll/2) * math.cos(pitch/2) * math.cos(yaw/2) + math.sin(roll/2) * math.sin(pitch/2) * math.sin(yaw/2)
 
         return q
+    
+    def wrap_angle(self, angle):
+
+        while angle > math.pi:
+            angle -= 2 * math.pi
+
+        while angle < -math.pi:
+            angle += 2 * math.pi
+
+        return angle
 
     # ==========================================================================
     # FEATURE: AVOID SINGULARITIES
@@ -597,94 +755,168 @@ class MoveWithMoveIt(Node):
         x: float,
         y: float,
         z: float,
-        orientation_rpy: tuple[float, float, float] = (math.pi, 0.0, math.radians(80)),
+        orientation_rpy: tuple[float, float, float] = (
+            math.pi,
+            0.0,
+            math.radians(80)
+        ),
     ) -> list[float] | None:
 
         if self._last_joints is not None:
             primary_seed = list(self._last_joints)
-            self.get_logger().info("IK seeded from previous state ✔")
+            self.get_logger().info(
+                "IK seeded from previous state ✔"
+            )
         else:
-            primary_seed = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-            self.get_logger().info("IK seeded from neutral home pose")
+            primary_seed = [0.0] * 6
+            self.get_logger().info(
+                "IK seeded from neutral home pose"
+            )
 
-        clean_seed = self._desingularize_seed(primary_seed)
+        clean_seed = self._desingularize_seed(
+            primary_seed
+        )
 
         seeds_to_try = [clean_seed]
 
         for delta in (0.15, -0.15, 0.30):
-            perturbed = [v + delta for v in clean_seed]
+            perturbed = [
+                v + delta
+                for v in clean_seed
+            ]
             seeds_to_try.append(perturbed)
 
-        target_orientation = self.euler_to_quaternion(*orientation_rpy)
+        target_orientation = self.euler_to_quaternion(
+            *orientation_rpy
+        )
 
-        candidates: list[tuple[float, list[float]]] = []
+        candidates = []
 
         for seed in seeds_to_try:
 
             request = GetPositionIK.Request()
-            request.ik_request.group_name = "arm"
-            request.ik_request.ik_link_name = "gripper_base_link"
-            request.ik_request.timeout.sec = 2
 
-            # ---------------------------------------------------------------
-            # FIX 1: Tell the IK solver to reject configurations that collide
-            # with any planning scene object — including the cylinder obstacle.
-            # Without this flag KDL/BioIK returns the nearest joint solution
-            # regardless of whether the arm passes through the stem.
-            # ---------------------------------------------------------------
+            request.ik_request.group_name = "arm"
+
+            # -------------------------------------------------
+            # FIX: solve IK for TCP frame
+            # -------------------------------------------------
+            request.ik_request.ik_link_name = "link_tcp"
+
+            request.ik_request.timeout.sec = 2
             request.ik_request.avoid_collisions = True
 
             seed_state = RobotState()
-            seed_state.joint_state.name = list(ARM_JOINT_NAMES)
-            seed_state.joint_state.position = [float(v) for v in seed]
-            request.ik_request.robot_state = seed_state
+            seed_state.joint_state.name = list(
+                ARM_JOINT_NAMES
+            )
+            seed_state.joint_state.position = [
+                float(v)
+                for v in seed
+            ]
+
+            request.ik_request.robot_state = (
+                seed_state
+            )
 
             pose = PoseStamped()
-            pose.header.frame_id = "base_footprint"
+
+            # -------------------------------------------------
+            # FIX: pose expressed in world frame
+            # -------------------------------------------------
+            pose.header.frame_id = (
+                "base_footprint"
+            )
+
             pose.pose.position.x = x
             pose.pose.position.y = y
             pose.pose.position.z = z
-            pose.pose.orientation = target_orientation
 
-            request.ik_request.pose_stamped = pose
+            pose.pose.orientation = (
+                target_orientation
+            )
 
-            future = self.ik_client.call_async(request)
-            rclpy.spin_until_future_complete(self, future)
+            request.ik_request.pose_stamped = (
+                pose
+            )
+
+            future = self.ik_client.call_async(
+                request
+            )
+
+            rclpy.spin_until_future_complete(
+                self,
+                future
+            )
+
             result = future.result()
 
-            if result.error_code.val != 1:
+            if (
+                result is None
+                or result.error_code.val != 1
+            ):
                 continue
 
-            joint_state = result.solution.joint_state
+            joint_state = (
+                result.solution.joint_state
+            )
 
             raw_joints = []
+
             try:
                 for name in ARM_JOINT_NAMES:
-                    idx = joint_state.name.index(name)
-                    raw_joints.append(joint_state.position[idx])
+                    idx = joint_state.name.index(
+                        name
+                    )
+
+                    raw_joints.append(
+                        joint_state.position[idx]
+                    )
+
             except ValueError:
                 continue
 
-            branched = self._match_branch(raw_joints, primary_seed)
+            branched = self._match_branch(
+                raw_joints,
+                primary_seed
+            )
 
-            clamped = self._check_and_clamp_limits(branched)
+            clamped = (
+                self._check_and_clamp_limits(
+                    branched
+                )
+            )
+
             if clamped is None:
                 continue
 
-            dist = self._joint_distance(clamped, primary_seed)
-            candidates.append((dist, clamped))
+            dist = self._joint_distance(
+                clamped,
+                primary_seed
+            )
+
+            candidates.append(
+                (dist, clamped)
+            )
 
         if not candidates:
-            self.get_logger().error("IK failed for all seeds ❌")
+            self.get_logger().error(
+                "IK failed for all seeds ❌"
+            )
             return None
 
-        candidates.sort(key=lambda c: c[0])
-        best_dist, best_joints = candidates[0]
+        candidates.sort(
+            key=lambda c: c[0]
+        )
+
+        best_dist, best_joints = (
+            candidates[0]
+        )
 
         self.get_logger().info(
-            f"IK: chose nearest solution "
-            f"(dist={best_dist:.4f} rad, "
-            f"from {len(candidates)} candidate(s)) ✔"
+            f"IK chose nearest solution "
+            f"(dist={best_dist:.4f}, "
+            f"{len(candidates)} candidate(s)) ✔"
         )
 
         return best_joints
@@ -705,130 +937,191 @@ class MoveWithMoveIt(Node):
     #   (i.e. from beyond the tip) and the TCP target must be placed so the
     #   fingers straddle the tip, not the base.
     # ==========================================================================
-    def grab_leaf_ik(self, leaf_index: int) -> None:
+    def grab_leaf_ik(
+        self,
+        leaf_index: int
+    ) -> None:
 
         GOLDEN_ANGLE = math.radians(137.5)
-        NUM_LEAVES   = 24
+
+        NUM_LEAVES = 24
         TOTAL_HEIGHT = 1.35
-        LEAF_RADIUS  = 0.055      # distance from stem axis to leaf base
-        LEAF_LENGTH  = 0.06       # marker scale.x — physical leaf length
-        START_ANGLE  = math.pi
+        LEAF_RADIUS = 0.055
+        LEAF_LENGTH = 0.06
+        START_ANGLE = math.pi
 
         STEM_X = 0.3
         STEM_Y = -0.45
 
-        # ---------------------------------------------------------
-        # GRIPPER GEOMETRY
-        # ---------------------------------------------------------
-        # Distance from gripper_base_link origin to finger mid-point.
-        # Set so that when TCP is at the tip position the fingers
-        # are centred on the leaf's free tip.
-        FINGER_REACH = 0.21       # metres (same as before)
-        GRASP_MARGIN = 0.01       # small inset so tips don't overshoot
+        # -------------------------------------------------
+        # PRE-APPROACH
+        # -------------------------------------------------
+        PRE_STANDOFF = 0.05
+        Z_CLEARANCE = 0.04
 
-        # How far outside the tip to park for the pre-approach
-        PRE_STANDOFF  = 0.0      # radial clearance beyond tip
-        Z_CLEARANCE   = 0.04      # raised slightly above leaf plane
-
-        # ---------------------------------------------------------
+        # -------------------------------------------------
         # LEAF GEOMETRY
-        # ---------------------------------------------------------
-        theta   = START_ANGLE + leaf_index * GOLDEN_ANGLE
-        z_leaf  = 0.20 + (leaf_index / NUM_LEAVES) * TOTAL_HEIGHT
+        # -------------------------------------------------
+        theta = (
+            START_ANGLE
+            + leaf_index * GOLDEN_ANGLE
+        )
 
-        # Leaf base (attachment point on stem surface)
-        x_base  = STEM_X + LEAF_RADIUS * math.cos(theta)
-        y_base  = STEM_Y + LEAF_RADIUS * math.sin(theta)
+        z_leaf = (
+            0.20
+            + (
+                leaf_index
+                / NUM_LEAVES
+            )
+            * TOTAL_HEIGHT
+        )
 
-        # Radial unit vector pointing AWAY from stem
+        x_base = (
+            STEM_X
+            + LEAF_RADIUS
+            * math.cos(theta)
+        )
+
+        y_base = (
+            STEM_Y
+            + LEAF_RADIUS
+            * math.sin(theta)
+        )
+
         rx = math.cos(theta)
         ry = math.sin(theta)
 
-        # Free tip of the leaf (opposite end from stem)
-        x_tip = x_base + LEAF_LENGTH * rx
-        y_tip = y_base + LEAF_LENGTH * ry
-
-        self.get_logger().info(
-            f"Leaf {leaf_index}: base=({x_base:.3f},{y_base:.3f}), "
-            f"tip=({x_tip:.3f},{y_tip:.3f}), z={z_leaf:.3f}"
+        # -------------------------------------------------
+        # LEAF TIP
+        # -------------------------------------------------
+        x_tip = (
+            x_base
+            + LEAF_LENGTH * rx
         )
 
-        # ---------------------------------------------------------
-        # FIX 2 — TCP TARGET
-        # Place TCP *beyond* the tip along the outward radial direction
-        # so that the fingers (which extend forward from the TCP) end up
-        # centred on the tip.
-        #
-        # Old code (wrong):  TCP = leaf_base - reach * (rx,ry)
-        #   → fingers were pushed toward / through the stem.
-        #
-        # New code (correct): TCP = tip + reach * (rx,ry)
-        #   → gripper approaches from outside; fingers straddle the tip.
-        # ---------------------------------------------------------
-        reach = FINGER_REACH - GRASP_MARGIN
+        y_tip = (
+            y_base
+            + LEAF_LENGTH * ry
+        )
 
-        grasp_x = x_tip + reach * rx
-        grasp_y = y_tip + reach * ry
+        self.get_logger().info(
+            f"Leaf {leaf_index}: "
+            f"tip=({x_tip:.3f}, "
+            f"{y_tip:.3f}, "
+            f"{z_leaf:.3f})"
+        )
+
+        # -------------------------------------------------
+        # FIX: TCP already represents grasp point
+        # no fake reach compensation
+        # -------------------------------------------------
+        grasp_x = x_tip
+        grasp_y = y_tip
         grasp_z = z_leaf
 
-        # ---------------------------------------------------------
-        # PRE-APPROACH: farther out along the same outward direction
-        # ---------------------------------------------------------
-        pre_x = grasp_x + PRE_STANDOFF * rx
-        pre_y = grasp_y + PRE_STANDOFF * ry
-        pre_z = grasp_z + Z_CLEARANCE
-
-        # ---------------------------------------------------------
-        # ORIENTATION
-        # Gripper faces INWARD (toward stem) — fingers point along -rx,-ry
-        # so they close around the tip.
-        # yaw = theta + π  means the gripper Z-axis points inward.
-        # ---------------------------------------------------------
-        yaw = math.pi - theta
-        
-        approach_rpy = (math.pi/2, 0.0, yaw)
-
-        self.get_logger().info(
-            f"Approach yaw = {math.degrees(yaw):.1f}° "
-            f"(gripper faces inward toward stem)"
+        # -------------------------------------------------
+        # PRE-APPROACH
+        # move from outside inward
+        # -------------------------------------------------
+        pre_x = (
+            grasp_x
+            + PRE_STANDOFF * rx
         )
 
-        # =========================================================
-        # SOLVE PRE-APPROACH IK
-        # =========================================================
-        pre_joints = self.solve_ik(pre_x, pre_y, pre_z, approach_rpy)
+        pre_y = (
+            grasp_y
+            + PRE_STANDOFF * ry
+        )
+
+        pre_z = (
+            grasp_z
+            + Z_CLEARANCE
+        )
+
+        # -------------------------------------------------
+        # ORIENTATION
+        # -------------------------------------------------
+        yaw = self.wrap_angle(
+            math.pi - theta
+        )
+
+        approach_rpy = (
+            math.pi / 2,
+            0.0,
+            yaw
+        )
+
+        self.get_logger().info(
+            f"Approach yaw = "
+            f"{math.degrees(yaw):.1f}°"
+        )
+
+        # -------------------------------------------------
+        # PRE-APPROACH IK
+        # -------------------------------------------------
+        pre_joints = self.solve_ik(
+            pre_x,
+            pre_y,
+            pre_z,
+            approach_rpy
+        )
 
         if pre_joints is None:
-            self.get_logger().error("Pre-approach IK failed ❌")
+            self.get_logger().error(
+                "Pre-approach IK failed ❌"
+            )
             return
 
-        self.move_to_joints(pre_joints, "PRE_APPROACH")
+        self.move_to_joints(
+            pre_joints,
+            "PRE_APPROACH"
+        )
 
-        # =========================================================
-        # SOLVE FINAL GRASP IK
-        # =========================================================
-        grasp_joints = self.solve_ik(grasp_x, grasp_y, grasp_z, approach_rpy)
+        # -------------------------------------------------
+        # FINAL GRASP IK
+        # -------------------------------------------------
+        grasp_joints = self.solve_ik(
+            grasp_x,
+            grasp_y,
+            grasp_z,
+            approach_rpy
+        )
 
         if grasp_joints is None:
-            self.get_logger().error("Final grasp IK failed ❌")
+            self.get_logger().error(
+                "Final grasp IK failed ❌"
+            )
             return
 
-        self.move_to_joints(grasp_joints, f"GRASP_LEAF_{leaf_index}")
+        self.move_to_joints(
+            grasp_joints,
+            f"GRASP_LEAF_{leaf_index}"
+        )
 
-        # =========================================================
+        # -------------------------------------------------
         # CLOSE GRIPPER
-        # =========================================================
+        # -------------------------------------------------
         self.move_gripper(0.035)
 
-        # =========================================================
-        # ENABLE LEAF COLLISION + ACM
-        # =========================================================
+        # -------------------------------------------------
+        # COLLISION
+        # -------------------------------------------------
         leaf_id = f"leaf_{leaf_index}"
-        self.enable_leaf_by_index(leaf_index)
-        time.sleep(0.3)
-        self._set_leaf_acm(leaf_id, allow=True)
 
-        self.get_logger().info("Leaf grasp complete ✔")
+        self.enable_leaf_by_index(
+            leaf_index
+        )
+
+        time.sleep(0.3)
+
+        self._set_leaf_acm(
+            leaf_id,
+            allow=True
+        )
+
+        self.get_logger().info(
+            "Leaf grasp complete ✔"
+        )
 
 
 def main(args=None):

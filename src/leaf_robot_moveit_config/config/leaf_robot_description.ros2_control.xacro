@@ -13,42 +13,49 @@
                 <state_interface name="position">
                   <param name="initial_value">${initial_positions['ROT_1']}</param>
                 </state_interface>
+                <state_interface name="velocity"/>
             </joint>
             <joint name="PITCH_1">
                 <command_interface name="position"/>
                 <state_interface name="position">
                   <param name="initial_value">${initial_positions['PITCH_1']}</param>
                 </state_interface>
+                <state_interface name="velocity"/>
             </joint>
             <joint name="PITCH_2">
                 <command_interface name="position"/>
                 <state_interface name="position">
                   <param name="initial_value">${initial_positions['PITCH_2']}</param>
                 </state_interface>
+                <state_interface name="velocity"/>
             </joint>
             <joint name="PITCH_3">
                 <command_interface name="position"/>
                 <state_interface name="position">
                   <param name="initial_value">${initial_positions['PITCH_3']}</param>
                 </state_interface>
+                <state_interface name="velocity"/>
             </joint>
             <joint name="ROT_2">
                 <command_interface name="position"/>
                 <state_interface name="position">
                   <param name="initial_value">${initial_positions['ROT_2']}</param>
                 </state_interface>
+                <state_interface name="velocity"/>
             </joint>
             <joint name="ROT_3">
                 <command_interface name="position"/>
                 <state_interface name="position">
                   <param name="initial_value">${initial_positions['ROT_3']}</param>
                 </state_interface>
+                <state_interface name="velocity"/>
             </joint>
             <joint name="left_finger_joint">
                 <command_interface name="position"/>
                 <state_interface name="position">
                   <param name="initial_value">${initial_positions['left_finger_joint']}</param>
                 </state_interface>
+                <state_interface name="velocity"/>
             </joint>
 
         </ros2_control>
