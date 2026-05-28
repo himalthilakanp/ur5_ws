@@ -475,7 +475,7 @@ class MoveWithMoveIt(Node):
     # -------------------------------------------------
     def run(self):
 
-        target_leaf = 14
+        target_leaf = 18
 
         # ---------------------------------
         # Extra buffer: confirm the cylinder
@@ -501,14 +501,7 @@ class MoveWithMoveIt(Node):
         # ---------------------------------
         # SAFE PRE-GRASP POSE
         # ---------------------------------
-        p2 = [
-            0.122,
-            0.368,
-           -2.312,
-            1.194,
-           -0.090,
-            0.00
-        ]
+        p2 = [0.179, 0.534, -1.878, 1.774, -0.085, 0.00]
 
         self.move_to_joints(p2, "P2")
 

@@ -175,7 +175,7 @@ class MoveWithMoveIt(Node):
             marker.pose.orientation = q
 
             # bigger temporary debug size
-            marker.scale.x = 0.10
+            marker.scale.x = 0.06
             marker.scale.y = 0.03
             marker.scale.z = 0.01
 
@@ -208,7 +208,7 @@ class MoveWithMoveIt(Node):
         primitive.type = SolidPrimitive.BOX
 
         # same leaf dimensions
-        primitive.dimensions = [0.10, 0.015, 0.005]
+        primitive.dimensions = [0.06, 0.015, 0.005]
 
         pose = PoseStamped()
         pose.header.frame_id = "base_footprint"
@@ -486,9 +486,8 @@ class MoveWithMoveIt(Node):
             f"TCP: x={current_x:.3f}, y={current_y:.3f}, "
             f"yaw={math.degrees(tcp_yaw):.2f} deg"
         )
-
         # ---------------------------------
-        # LEAF CENTER
+        # LEAF CENTER (same model)
         # ---------------------------------
         GOLDEN_ANGLE = math.radians(137.5)
         START_ANGLE = math.pi
@@ -504,34 +503,22 @@ class MoveWithMoveIt(Node):
         )
 
         # ---------------------------------
-        # ANGLE CORRECTION (FIXED LOGIC)
+        # ANGLE BETWEEN POINTS
         # ---------------------------------
         dx = leaf_x - current_x
         dy = leaf_y - current_y
 
         angle = math.atan2(dy, dx)
 
-        tcp_yaw = tcp_yaw
-
-        relative_angle = angle + tcp_yaw
-
-        target_j5 = relative_angle + math.radians(90)
-
         self.get_logger().info(
-            f"dx={dx:.3f}, dy={dy:.3f}"
+            f"angle={math.degrees(angle):.2f} deg"
         )
 
-        self.get_logger().info(
-            f"world angle={math.degrees(angle):.2f} deg"
-        )
-
-        self.get_logger().info(
-            f"tcp yaw={math.degrees(tcp_yaw):.2f} deg"
-        )
-
-        self.get_logger().info(
-            f"relative angle={math.degrees(relative_angle):.2f} deg"
-        )
+        # ---------------------------------
+        # YOUR RULE:
+        # J5 = 90° - angle
+        # ---------------------------------
+        target_j5 = angle + math.radians(90)
 
         self.get_logger().info(
             f"target J5={math.degrees(target_j5):.2f} deg"
