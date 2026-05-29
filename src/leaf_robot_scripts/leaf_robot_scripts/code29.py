@@ -11,9 +11,6 @@ from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 from moveit_msgs.srv import GetPositionIK
 from geometry_msgs.msg import PoseStamped
-from moveit_msgs.msg import Constraints
-from moveit_msgs.msg import JointConstraint
-
 
 from moveit_msgs.action import MoveGroup
 from moveit_msgs.msg import (
@@ -455,7 +452,7 @@ class MoveWithMoveIt(Node):
         # visual + collision
         # ---------------------------------
         self.remove_leaf_marker(target_leaf)
-        #self.enable_leaf_by_index(target_leaf)
+        self.enable_leaf_by_index(target_leaf)
 
         # ---------------------------------
         # MOVE TO P2
@@ -597,58 +594,27 @@ class MoveWithMoveIt(Node):
 
         self.get_logger().info("J5 aligned to leaf ✔")
         # ---------------------------------
-        # APPROACH LEAF USING IK
-        # PRE-GRASP FIRST
+        # SMALL FORWARD PUSH TO LEAF
         # ---------------------------------
+        grab_pose = face_joints.copy()
 
-        # refresh TCP orientation AFTER J5 move
-        tcp = self.get_tcp_pose()
+        # extend arm slightly
+        grab_pose[1] -= 0.08
+        grab_pose[2] += 0.12
 
-        if tcp is None:
-            return
-
-        _, _, _, updated_yaw = tcp
-
-        # pre-grasp point (5 cm away from leaf)
-        approach_dist = 0.05
-
-        pre_x = leaf_x - approach_dist * math.cos(theta)
-        pre_y = leaf_y - approach_dist * math.sin(theta)
-
-        self.get_logger().info(
-            f"Pre-grasp target:"
-            f" x={pre_x:.3f}"
-            f" y={pre_y:.3f}"
-            f" z={leaf_z:.3f}"
-        )
-
-        grab_joints = self.solve_ik(
-            pre_x,
-            pre_y,
-            leaf_z,
-            updated_yaw,
-            #lock_j4=face_joints[3], 
-            #lock_j5=face_joints[4]
-        )
-
-        if grab_joints is None:
-            return
-
-        # move to pre-grasp pose
         self.move_to_joints(
-            grab_joints,
-            "PRE_GRASP"
-        )
-
-        # straight motion to actual leaf
-        self.straight_move_to_leaf(
-            leaf_x,
-            leaf_y,
-            leaf_z,
-            updated_yaw
+            grab_pose,
+            "APPROACH_LEAF"
         )
 
         self.get_logger().info("Reached leaf ✔")
+
+        # ---------------------------------
+        # CLOSE GRIPPER
+        # ---------------------------------
+        self.move_gripper(0.0)
+
+        self.get_logger().info("Leaf grabbed ✔")
     # -------------------------------------------------
     # QUAT
     # -------------------------------------------------
@@ -668,7 +634,7 @@ class MoveWithMoveIt(Node):
         x,
         y,
         z,
-        yaw,
+        yaw
         lock_j4=None,
         lock_j5=None
     ):
@@ -679,56 +645,6 @@ class MoveWithMoveIt(Node):
         request.ik_request.ik_link_name = "link_tcp"
         request.ik_request.timeout.sec = 2
 
-        # ------------------------------
-        # IK seed state (VERY IMPORTANT)
-        # ------------------------------
-        request.ik_request.robot_state.joint_state.name = [
-            "ROT_1",
-            "PITCH_1",
-            "PITCH_2",
-            "PITCH_3",
-            "ROT_2",
-            "ROT_3"
-        ]
-
-        request.ik_request.robot_state.joint_state.position = [
-            0.0,
-            0.534,
-            -1.878,
-            lock_j4 if lock_j4 is not None else 1.774,
-            lock_j5 if lock_j5 is not None else -0.085,
-            0.0
-        ]
-
-        # ------------------------------
-        # LOCK J4 + J5
-        # ------------------------------
-        if lock_j4 is not None and lock_j5 is not None:
-
-            constraints = Constraints()
-
-            j4 = JointConstraint()
-            j4.joint_name = "PITCH_3"
-            j4.position = lock_j4
-            j4.tolerance_above = 0.5
-            j4.tolerance_below = 0.5
-            j4.weight = 1.0
-
-            j5 = JointConstraint()
-            j5.joint_name = "ROT_2"
-            j5.position = lock_j5
-            j5.tolerance_above = 0.5
-            j5.tolerance_below = 0.5
-            j5.weight = 1.0
-
-            constraints.joint_constraints.append(j4)
-            constraints.joint_constraints.append(j5)
-
-            request.ik_request.constraints = constraints
-
-        # -----------------------------------
-        # TCP target pose
-        # -----------------------------------
         pose = PoseStamped()
         pose.header.frame_id = "base_footprint"
 
@@ -737,7 +653,7 @@ class MoveWithMoveIt(Node):
         pose.pose.position.z = z
 
         q = self.euler_to_quaternion(
-            math.pi/2,
+            math.pi,     # tool downward
             0.0,
             yaw
         )
