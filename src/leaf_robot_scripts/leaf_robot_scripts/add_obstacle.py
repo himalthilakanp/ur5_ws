@@ -138,7 +138,7 @@ class MoveWithMoveIt(Node):
 
         NUM_LEAVES = 24
         TOTAL_HEIGHT = 1.35
-        LEAF_RADIUS = 0.055
+        LEAF_RADIUS = 0.10
 
         START_ANGLE = math.pi
 
@@ -243,7 +243,7 @@ class MoveWithMoveIt(Node):
 
         NUM_LEAVES = 24
         TOTAL_HEIGHT = 1.35
-        LEAF_RADIUS = 0.055
+        LEAF_RADIUS = 0.10
 
         START_ANGLE = math.pi
 
@@ -486,52 +486,78 @@ class MoveWithMoveIt(Node):
             f"TCP: x={current_x:.3f}, y={current_y:.3f}, "
             f"yaw={math.degrees(tcp_yaw):.2f} deg"
         )
-
         # ---------------------------------
-        # LEAF CENTER
+        # LEAF CENTER (same model)
         # ---------------------------------
         GOLDEN_ANGLE = math.radians(137.5)
         START_ANGLE = math.pi
-        LEAF_RADIUS = 0.055
+        LEAF_RADIUS = 0.10
 
         theta = START_ANGLE + target_leaf * GOLDEN_ANGLE
 
         leaf_x = 0.3 + LEAF_RADIUS * math.cos(theta)
         leaf_y = -0.45 + LEAF_RADIUS * math.sin(theta)
 
+        # ---------------------------------
+        # LEAF CENTER SPHERE (DEBUG)
+        # ---------------------------------
+        sphere = Marker()
+        sphere.header.frame_id = "base_footprint"
+        sphere.header.stamp = self.get_clock().now().to_msg()
+
+        sphere.ns = "leaf_center"
+        sphere.id = target_leaf + 1000
+        sphere.type = Marker.SPHERE
+        sphere.action = Marker.ADD
+
+        sphere.pose.position.x = leaf_x
+        sphere.pose.position.y = leaf_y
+        sphere.pose.position.z = leaf_z
+
+        sphere.pose.orientation.w = 1.0
+
+        sphere.scale.x = 0.03
+        sphere.scale.y = 0.03
+        sphere.scale.z = 0.03
+
+        sphere.color.r = 1.0
+        sphere.color.g = 0.0
+        sphere.color.b = 0.0
+        sphere.color.a = 1.0
+
+        marker_array = MarkerArray()
+        marker_array.markers.append(sphere)
+
+        self.marker_pub.publish(marker_array)
+
         self.get_logger().info(
             f"Leaf center: x={leaf_x:.3f}, y={leaf_y:.3f}"
         )
 
         # ---------------------------------
-        # ANGLE CORRECTION (FIXED LOGIC)
+        # ANGLE BETWEEN POINTS
         # ---------------------------------
-        dx = leaf_x - current_x
-        dy = leaf_y - current_y
+        #dx = leaf_x - current_x
+        #dy = leaf_y - current_y
 
-        angle = math.atan2(dy, dx)
+        angle1 = math.atan2(current_y, current_x)
+        angle2 = math.atan2(leaf_y, leaf_x)
 
-        tcp_yaw = tcp_yaw
+        angle = angle2 - angle1
 
-        relative_angle = angle + tcp_yaw
+        #angle = math.atan2(dy, dx)
 
-        target_j5 = relative_angle + math.radians(90)
-
-        self.get_logger().info(
-            f"dx={dx:.3f}, dy={dy:.3f}"
-        )
+        relative_angle = angle - tcp_yaw
 
         self.get_logger().info(
-            f"world angle={math.degrees(angle):.2f} deg"
+            f"angle={math.degrees(angle):.2f} deg"
         )
 
-        self.get_logger().info(
-            f"tcp yaw={math.degrees(tcp_yaw):.2f} deg"
-        )
-
-        self.get_logger().info(
-            f"relative angle={math.degrees(relative_angle):.2f} deg"
-        )
+        # ---------------------------------
+        # YOUR RULE:
+        # J5 = 90° - angle
+        # ---------------------------------
+        target_j5 = relative_angle
 
         self.get_logger().info(
             f"target J5={math.degrees(target_j5):.2f} deg"
@@ -663,7 +689,7 @@ class MoveWithMoveIt(Node):
         NUM_LEAVES = 24
         TOTAL_HEIGHT = 1.35
         START_ANGLE = math.pi
-        LEAF_RADIUS = 0.055
+        LEAF_RADIUS = 0.10
 
         STEM_X = 0.3
         STEM_Y = -0.45
