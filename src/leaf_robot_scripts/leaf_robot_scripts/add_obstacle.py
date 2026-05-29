@@ -649,6 +649,17 @@ class MoveWithMoveIt(Node):
         )
 
         self.get_logger().info("Reached leaf ✔")
+
+        # close gripper
+        self.move_gripper(0.035)
+
+        self.get_logger().info("Leaf grabbed ✔")
+
+        # downward semicircle motion
+        self.semicircle_down_motion(
+            updated_yaw,
+            radius=0.10
+        )
     # -------------------------------------------------
     # QUAT
     # -------------------------------------------------
@@ -965,7 +976,163 @@ class MoveWithMoveIt(Node):
         self.get_logger().info(
             "Straight motion complete ✔"
         )
+    def semicircle_down_motion(
+        self,
+        yaw,
+        radius=0.05,
+        steps=30
+    ):
 
+        tcp = self.get_tcp_pose()
+
+        if tcp is None:
+            return
+
+        start_x, start_y, start_z, _ = tcp
+
+        center_y = start_y
+        center_z = start_z - radius
+
+        for i in range(steps + 1):
+
+            alpha = i / steps
+
+            theta = (
+                math.pi / 2
+                - alpha * math.pi
+            )
+
+            y = (
+                center_y
+                - radius * math.cos(theta)
+            )
+
+            z = (
+                center_z
+                + radius * math.sin(theta)
+            )
+
+            x = start_x
+
+            self.move_to_pose_lin(
+                x,
+                y,
+                z,
+                yaw,
+                f"SEMICIRCLE_{i}"
+            )
+
+        self.get_logger().info(
+            "Semicircle complete ✔"
+        )
+    def move_to_pose_lin(
+        self,
+        x,
+        y,
+        z,
+        yaw,
+        name
+    ):
+
+        goal = MoveGroup.Goal()
+
+        goal.request.group_name = "arm"
+        goal.request.pipeline_id = (
+            "pilz_industrial_motion_planner"
+        )
+        goal.request.planner_id = "LIN"
+
+        goal.request.max_velocity_scaling_factor = 0.1
+        goal.request.max_acceleration_scaling_factor = 0.1
+
+        # -----------------------------
+        # Cartesian target pose
+        # -----------------------------
+        pose = PoseStamped()
+        pose.header.frame_id = "base_footprint"
+
+        pose.pose.position.x = x
+        pose.pose.position.y = y
+        pose.pose.position.z = z
+
+        q = self.euler_to_quaternion(
+            math.pi / 2,
+            0.0,
+            yaw
+        )
+
+        pose.pose.orientation = q
+
+        # -----------------------------
+        # Pose constraint (important)
+        # -----------------------------
+        constraint = Constraints()
+
+        # MoveIt pose target
+        from moveit_msgs.msg import PositionConstraint
+        from moveit_msgs.msg import OrientationConstraint
+        from shape_msgs.msg import SolidPrimitive
+
+        pc = PositionConstraint()
+        pc.header.frame_id = "base_footprint"
+        pc.link_name = "link_tcp"
+
+        box = SolidPrimitive()
+        box.type = SolidPrimitive.BOX
+        box.dimensions = [0.001, 0.001, 0.001]
+
+        pc.constraint_region.primitives.append(box)
+        pc.constraint_region.primitive_poses.append(
+            pose.pose
+        )
+
+        oc = OrientationConstraint()
+        oc.header.frame_id = "base_footprint"
+        oc.link_name = "link_tcp"
+
+        oc.orientation = pose.pose.orientation
+
+        oc.absolute_x_axis_tolerance = 0.01
+        oc.absolute_y_axis_tolerance = 0.01
+        oc.absolute_z_axis_tolerance = 0.01
+        oc.weight = 1.0
+
+        constraint.position_constraints.append(pc)
+        constraint.orientation_constraints.append(oc)
+
+        goal.request.goal_constraints.append(
+            constraint
+        )
+
+        send_future = self.client.send_goal_async(
+            goal
+        )
+
+        rclpy.spin_until_future_complete(
+            self,
+            send_future
+        )
+
+        goal_handle = send_future.result()
+
+        if not goal_handle.accepted:
+            self.get_logger().error(
+                f"{name} rejected ❌"
+            )
+            return
+
+        result_future = (
+            goal_handle.get_result_async()
+        )
+
+        rclpy.spin_until_future_complete(
+            self,
+            result_future
+        )
+
+        self.get_logger().info(
+            f"{name} done ✔"
+        )
 def main(args=None):
     rclpy.init(args=args)
     node = MoveWithMoveIt()
