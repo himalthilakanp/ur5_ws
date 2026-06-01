@@ -13,6 +13,7 @@ from moveit_msgs.srv import GetPositionIK
 from geometry_msgs.msg import PoseStamped
 from moveit_msgs.msg import Constraints
 from moveit_msgs.msg import JointConstraint
+from sensor_msgs.msg import JointState
 
 
 from moveit_msgs.action import MoveGroup
@@ -84,6 +85,17 @@ class MoveWithMoveIt(Node):
         self.tf_listener = TransformListener(
             self.tf_buffer,
             self
+        )
+
+        self.current_joint_state = None
+        
+    
+
+        self.create_subscription(
+            JointState,
+            "/joint_states",
+            self.joint_state_callback,
+            10
         )
 
         self.get_logger().info("Waiting for IK service...")
@@ -557,10 +569,23 @@ class MoveWithMoveIt(Node):
         )
 
         # ---------------------------------
-        # YOUR RULE:
-        # J5 = 90° - angle
+        # CHECK IF LEAF IS LEFT OR RIGHT
         # ---------------------------------
-        target_j5 = relative_angle
+        stem_x = 0.3
+
+        if leaf_x >= stem_x:
+            # RIGHT SIDE LEAF
+            target_j5 = relative_angle
+            side = "RIGHT"
+
+        else:
+            # LEFT SIDE LEAF
+            target_j5 = -relative_angle
+            side = "LEFT"
+
+        self.get_logger().info(
+            f"Leaf side: {side}"
+        )
 
         self.get_logger().info(
             f"target J5={math.degrees(target_j5):.2f} deg"
@@ -586,16 +611,42 @@ class MoveWithMoveIt(Node):
         # ---------------------------------
         # APPLY ONLY J5 (ROT_2 = index 4)
         # ---------------------------------
+        stem_x = 0.3
+
         face_joints = target_joints.copy()
 
-        face_joints[4] = target_j5
+        current_j5 = target_joints[4]
+
+        if leaf_x >= stem_x:
+            # RIGHT SIDE
+            side = "RIGHT"
+            face_joints[4] = current_j5 + abs(relative_angle)
+
+        else:
+            # LEFT SIDE
+            side = "LEFT"
+            face_joints[4] = current_j5 - abs(relative_angle)
+
+        self.get_logger().info(
+            f"Leaf side: {side}"
+        )
+
+        self.get_logger().info(
+            f"Current J5: {math.degrees(current_j5):.2f}"
+        )
+
+        self.get_logger().info(
+            f"Relative angle: {math.degrees(relative_angle):.2f}"
+        )
+
+        self.get_logger().info(
+            f"Target J5: {math.degrees(face_joints[4]):.2f}"
+        )
 
         self.move_to_joints(
             face_joints,
             "FACE_LEAF_J5"
         )
-
-        self.get_logger().info("J5 aligned to leaf ✔")
         # ---------------------------------
         # APPROACH LEAF USING IK
         # PRE-GRASP FIRST
@@ -627,8 +678,8 @@ class MoveWithMoveIt(Node):
             pre_y,
             leaf_z,
             updated_yaw,
-            #lock_j4=face_joints[3], 
-            #lock_j5=face_joints[4]
+            # lock_j4=face_joints[3], 
+            # lock_j5=face_joints[4]
         )
 
         if grab_joints is None:
@@ -645,7 +696,9 @@ class MoveWithMoveIt(Node):
             leaf_x,
             leaf_y,
             leaf_z,
-            updated_yaw
+            updated_yaw,
+            # lock_j4=face_joints[3], 
+            # lock_j5=face_joints[4]
         )
 
         self.get_logger().info("Reached leaf ✔")
@@ -707,9 +760,9 @@ class MoveWithMoveIt(Node):
         request.ik_request.ik_link_name = "link_tcp"
         request.ik_request.timeout.sec = 2
 
-        # ------------------------------
-        # IK seed state (VERY IMPORTANT)
-        # ------------------------------
+        # ---------------------------------
+        # current robot state (seed)
+        # ---------------------------------
         request.ik_request.robot_state.joint_state.name = [
             "ROT_1",
             "PITCH_1",
@@ -719,44 +772,34 @@ class MoveWithMoveIt(Node):
             "ROT_3"
         ]
 
-        request.ik_request.robot_state.joint_state.position = [
-            0.0,
-            0.534,
-            -1.878,
-            lock_j4 if lock_j4 is not None else 1.774,
-            lock_j5 if lock_j5 is not None else -0.085,
-            0.0
-        ]
+        seed = self.get_current_arm_joints()
 
-        # ------------------------------
-        # LOCK J4 + J5
-        # ------------------------------
-        if lock_j4 is not None and lock_j5 is not None:
+        if seed is None:
+            return None
 
-            constraints = Constraints()
+        request.ik_request.robot_state.joint_state.position = seed
 
-            j4 = JointConstraint()
-            j4.joint_name = "PITCH_3"
-            j4.position = lock_j4
-            j4.tolerance_above = 0.5
-            j4.tolerance_below = 0.5
-            j4.weight = 1.0
+        # ---------------------------------
+        # debug info
+        # ---------------------------------
+        dist = math.sqrt(
+            x * x +
+            y * y +
+            z * z
+        )
 
-            j5 = JointConstraint()
-            j5.joint_name = "ROT_2"
-            j5.position = lock_j5
-            j5.tolerance_above = 0.5
-            j5.tolerance_below = 0.5
-            j5.weight = 1.0
+        self.get_logger().info(
+            f"IK target:"
+            f" x={x:.3f}"
+            f" y={y:.3f}"
+            f" z={z:.3f}"
+            f" yaw={math.degrees(yaw):.2f}"
+            f" dist={dist:.3f}"
+        )
 
-            constraints.joint_constraints.append(j4)
-            constraints.joint_constraints.append(j5)
-
-            request.ik_request.constraints = constraints
-
-        # -----------------------------------
-        # TCP target pose
-        # -----------------------------------
+        # ---------------------------------
+        # target pose
+        # ---------------------------------
         pose = PoseStamped()
         pose.header.frame_id = "base_footprint"
 
@@ -764,8 +807,9 @@ class MoveWithMoveIt(Node):
         pose.pose.position.y = y
         pose.pose.position.z = z
 
+        # Tool-down orientation
         q = self.euler_to_quaternion(
-            math.pi/2,
+            math.pi/2,   # <-- changed from pi/2
             0.0,
             yaw
         )
@@ -774,9 +818,10 @@ class MoveWithMoveIt(Node):
 
         request.ik_request.pose_stamped = pose
 
-        future = self.ik_client.call_async(
-            request
-        )
+        # ---------------------------------
+        # call IK
+        # ---------------------------------
+        future = self.ik_client.call_async(request)
 
         rclpy.spin_until_future_complete(
             self,
@@ -785,15 +830,25 @@ class MoveWithMoveIt(Node):
 
         result = future.result()
 
-        if (
-            result is None
-            or result.error_code.val != 1
-        ):
+        # ---------------------------------
+        # failure handling
+        # ---------------------------------
+        if result is None:
             self.get_logger().error(
-                "IK failed ❌"
+                "IK service returned None ❌"
             )
             return None
 
+        if result.error_code.val != 1:
+            self.get_logger().error(
+                f"IK failed ❌ "
+                f"error_code={result.error_code.val}"
+            )
+            return None
+
+        # ---------------------------------
+        # extract arm joints
+        # ---------------------------------
         joint_state = result.solution.joint_state
 
         arm_joint_names = [
@@ -808,14 +863,17 @@ class MoveWithMoveIt(Node):
         joints = []
 
         for name in arm_joint_names:
-
-            idx = joint_state.name.index(
-                name
-            )
-
+            idx = joint_state.name.index(name)
             joints.append(
                 joint_state.position[idx]
             )
+
+        self.get_logger().info(
+            "IK solved ✔ "
+            + str(
+                [round(j, 3) for j in joints]
+            )
+        )
 
         return joints
     def grab_leaf_ik(self, leaf_index):
@@ -939,6 +997,8 @@ class MoveWithMoveIt(Node):
         target_y,
         target_z,
         yaw,
+        lock_j4=None,
+        lock_j5=None,
         steps=20
     ):
 
@@ -947,7 +1007,6 @@ class MoveWithMoveIt(Node):
         if tcp is None:
             return
 
-        # FIX HERE
         start_x, start_y, start_z, _ = tcp
 
         for i in range(1, steps + 1):
@@ -972,11 +1031,14 @@ class MoveWithMoveIt(Node):
                 * (target_z - start_z)
             )
 
+            # CHANGED HERE
             joints = self.solve_ik(
                 x,
                 y,
                 z,
-                yaw
+                yaw,
+                lock_j4=lock_j4,
+                lock_j5=lock_j5
             )
 
             if joints is None:
@@ -989,10 +1051,6 @@ class MoveWithMoveIt(Node):
                 joints,
                 f"APPROACH_{i}"
             )
-
-        self.get_logger().info(
-            "Straight motion complete ✔"
-        )
     def semicircle_down_motion(
         self,
         yaw,
@@ -1176,6 +1234,36 @@ class MoveWithMoveIt(Node):
         self.get_logger().info(
             f"{name} done ✔"
         )
+
+    def joint_state_callback(self, msg):
+        self.current_joint_state = msg
+
+    def get_current_arm_joints(self):
+
+        if self.current_joint_state is None:
+            self.get_logger().error(
+                "No joint state received ❌"
+            )
+            return None
+
+        wanted = [
+            "ROT_1",
+            "PITCH_1",
+            "PITCH_2",
+            "PITCH_3",
+            "ROT_2",
+            "ROT_3"
+        ]
+
+        joints = []
+
+        for name in wanted:
+            idx = self.current_joint_state.name.index(name)
+            joints.append(
+                self.current_joint_state.position[idx]
+            )
+
+        return joints
 def main(args=None):
     rclpy.init(args=args)
     node = MoveWithMoveIt()
