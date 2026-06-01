@@ -654,12 +654,29 @@ class MoveWithMoveIt(Node):
         self.move_gripper(0.035)
 
         self.get_logger().info("Leaf grabbed ✔")
+        
+        # ---------------------------------
+        # CURRENT TCP AFTER GRAB
+        # ---------------------------------
+        tcp = self.get_tcp_pose()
+
+        if tcp is not None:
+            grab_x, grab_y, grab_z, grab_yaw = tcp
+
+            self.get_logger().info(
+                f"After grab TCP:"
+                f" x={grab_x:.3f}"
+                f" y={grab_y:.3f}"
+                f" z={grab_z:.3f}"
+                f" yaw={math.degrees(grab_yaw):.2f} deg"
+            )
 
         # downward semicircle motion
         self.semicircle_down_motion(
             updated_yaw,
-            radius=0.10
+            radius=0.02
         )
+        
     # -------------------------------------------------
     # QUAT
     # -------------------------------------------------
@@ -979,8 +996,8 @@ class MoveWithMoveIt(Node):
     def semicircle_down_motion(
         self,
         yaw,
-        radius=0.05,
-        steps=30
+        radius=0.02,
+        steps=10
     ):
 
         tcp = self.get_tcp_pose()
@@ -1020,6 +1037,32 @@ class MoveWithMoveIt(Node):
                 z,
                 yaw,
                 f"SEMICIRCLE_{i}"
+            )
+
+        # ---------------------------------
+        # CALCULATED END POINT
+        # ---------------------------------
+        self.get_logger().info(
+            f"Semicircle target end:"
+            f" x={x:.3f}"
+            f" y={y:.3f}"
+            f" z={z:.3f}"
+        )
+
+        # ---------------------------------
+        # REAL TCP AFTER MOTION
+        # ---------------------------------
+        tcp = self.get_tcp_pose()
+
+        if tcp is not None:
+            real_x, real_y, real_z, real_yaw = tcp
+
+            self.get_logger().info(
+                f"Real TCP end:"
+                f" x={real_x:.3f}"
+                f" y={real_y:.3f}"
+                f" z={real_z:.3f}"
+                f" yaw={math.degrees(real_yaw):.2f} deg"
             )
 
         self.get_logger().info(
