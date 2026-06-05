@@ -1,10 +1,10 @@
 # Default initial positions for leaf_robot_description's ros2_control fake system
 
 initial_positions:
+  ROT_1: 0
   PITCH_1: 0
   PITCH_2: 0
   PITCH_3: 0
-  ROT_1: 0
   ROT_2: 0
   ROT_3: 0
   left_finger_joint: 0

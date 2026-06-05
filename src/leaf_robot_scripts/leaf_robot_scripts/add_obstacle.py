@@ -620,7 +620,7 @@ class MoveWithMoveIt(Node):
         ux = dx / dist_to_leaf
         uy = dy / dist_to_leaf
 
-        approach_dist = 0.05
+        approach_dist = 0.0
 
         # pre-grasp: step back along real approach vector
         pre_x = leaf_x - approach_dist * ux
@@ -679,18 +679,18 @@ class MoveWithMoveIt(Node):
         # ---------------------------------
         # CURRENT TCP AFTER GRAB
         # ---------------------------------
-        tcp = self.get_tcp_pose()
+        # tcp = self.get_tcp_pose()
 
-        if tcp is not None:
-            grab_x, grab_y, grab_z, grab_yaw = tcp
+        # if tcp is not None:
+        #     grab_x, grab_y, grab_z, grab_yaw = tcp
 
-            self.get_logger().info(
-                f"After grab TCP:"
-                f" x={grab_x:.3f}"
-                f" y={grab_y:.3f}"
-                f" z={grab_z:.3f}"
-                f" yaw={math.degrees(grab_yaw):.2f} deg"
-            )
+        #     self.get_logger().info(
+        #         f"After grab TCP:"
+        #         f" x={grab_x:.3f}"
+        #         f" y={grab_y:.3f}"
+        #         f" z={grab_z:.3f}"
+        #         f" yaw={math.degrees(grab_yaw):.2f} deg"
+        #     )
 
         # downward semicircle motion
         self.semicircle_down_motion(
