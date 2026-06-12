@@ -427,7 +427,7 @@ class MoveWithMoveIt(Node):
     # -------------------------------------------------
     def run(self):
 
-        target_leaf = 18
+        target_leaf = 17
 
         # ---------------------------------
         # leaf height
@@ -448,16 +448,15 @@ class MoveWithMoveIt(Node):
         # self.enable_leaf_by_index(target_leaf)
 
         # ---------------------------------
-        # MOVE TO P2
+        # MOVE TO P2(for point 17,18)
         # ---------------------------------
-        p2 = [
-            0.179,
-            0.534,
-            -1.878,
-            1.774,
-            -0.085,
-            0.00
-        ]
+        p2 = [0.179,0.534,-1.878,1.774,-0.085,0.00]
+        #-------------------------------------
+        # MOVE TO POINT P2(FOR POINT 10,12)
+        #--------------------------------------
+
+        #p2 = [0.170,-0.079,-2.557,0.504,-0.243,0.00]
+
 
         self.move_to_joints(p2, "P2")
 
@@ -571,16 +570,27 @@ class MoveWithMoveIt(Node):
         # ---------------------------------
         # APPLY ONLY J5 (ROT_2 = index 4)
         # ---------------------------------
+        
         face_joints = target_joints.copy()
 
-        face_joints[4] = target_j5
+        stem_x = 0.3
+
+        if leaf_x <= stem_x:
+            self.get_logger().info(f"leaf at right side")
+            face_joints[4] = target_j5
+
+        else:
+            self.get_logger().info(f"leaf at left side")    
+            face_joints[4] = -target_j5   
+
+        #face_joints[4] = target_j5
 
         self.move_to_joints(
             face_joints,
             "FACE_LEAF_J5"
         )
 
-        self.get_logger().info("J5 aligned to leaf ✔")
+        self.get_logger().info("J5 aligned to leaf ✔")             
 
         # ---------------------------------
         # FIX: refresh TCP AFTER J5 move
@@ -637,7 +647,7 @@ class MoveWithMoveIt(Node):
             pre_x,
             pre_y,
             leaf_z,
-            updated_yaw,
+            updated_yaw
         )
 
         if grab_joints is None:
@@ -677,20 +687,20 @@ class MoveWithMoveIt(Node):
         self.get_logger().info("Leaf grabbed ✔")
 
         # ---------------------------------
-        # CURRENT TCP AFTER GRAB
-        # ---------------------------------
-        # tcp = self.get_tcp_pose()
+        #CURRENT TCP AFTER GRAB
+        #---------------------------------
+        tcp = self.get_tcp_pose()
 
-        # if tcp is not None:
-        #     grab_x, grab_y, grab_z, grab_yaw = tcp
+        if tcp is not None:
+            grab_x, grab_y, grab_z, grab_yaw = tcp
 
-        #     self.get_logger().info(
-        #         f"After grab TCP:"
-        #         f" x={grab_x:.3f}"
-        #         f" y={grab_y:.3f}"
-        #         f" z={grab_z:.3f}"
-        #         f" yaw={math.degrees(grab_yaw):.2f} deg"
-        #     )
+            self.get_logger().info(
+                f"After grab TCP:"
+                f" x={grab_x:.3f}"
+                f" y={grab_y:.3f}"
+                f" z={grab_z:.3f}"
+                f" yaw={math.degrees(grab_yaw):.2f} deg"
+            )
 
         # downward semicircle motion
         self.semicircle_down_motion(
@@ -840,67 +850,67 @@ class MoveWithMoveIt(Node):
 
         return joints
 
-    def grab_leaf_ik(self, leaf_index):
+    # def grab_leaf_ik(self, leaf_index):
 
-        GOLDEN_ANGLE = math.radians(137.5)
+    #     GOLDEN_ANGLE = math.radians(137.5)
 
-        NUM_LEAVES = 24
-        TOTAL_HEIGHT = 1.35
-        START_ANGLE = math.pi
-        LEAF_RADIUS = 0.10
+    #     NUM_LEAVES = 24
+    #     TOTAL_HEIGHT = 1.35
+    #     START_ANGLE = math.pi
+    #     LEAF_RADIUS = 0.10
 
-        STEM_X = 0.3
-        STEM_Y = -0.45
+    #     STEM_X = 0.3
+    #     STEM_Y = -0.45
 
-        theta = START_ANGLE + leaf_index * GOLDEN_ANGLE
+    #     theta = START_ANGLE + leaf_index * GOLDEN_ANGLE
 
-        leaf_z = (
-            0.20
-            + (leaf_index / NUM_LEAVES)
-            * TOTAL_HEIGHT
-        )
+    #     leaf_z = (
+    #         0.20
+    #         + (leaf_index / NUM_LEAVES)
+    #         * TOTAL_HEIGHT
+    #     )
 
-        leaf_x = STEM_X + LEAF_RADIUS * math.cos(theta)
-        leaf_y = STEM_Y + LEAF_RADIUS * math.sin(theta)
+    #     leaf_x = STEM_X + LEAF_RADIUS * math.cos(theta)
+    #     leaf_y = STEM_Y + LEAF_RADIUS * math.sin(theta)
 
-        self.get_logger().info(
-            f"Leaf {leaf_index}: "
-            f"x={leaf_x:.3f}, "
-            f"y={leaf_y:.3f}, "
-            f"z={leaf_z:.3f}"
-        )
+    #     self.get_logger().info(
+    #         f"Leaf {leaf_index}: "
+    #         f"x={leaf_x:.3f}, "
+    #         f"y={leaf_y:.3f}, "
+    #         f"z={leaf_z:.3f}"
+    #     )
 
-        target_x = 0.18
-        target_y = -0.28
-        target_z = leaf_z
+    #     target_x = 0.18
+    #     target_y = -0.28
+    #     target_z = leaf_z
 
-        orientation_rpy = (
-            math.pi,
-            0.0,
-            0.0
-        )
+    #     orientation_rpy = (
+    #         math.pi,
+    #         0.0,
+    #         0.0
+    #     )
 
-        joints = self.solve_ik(
-            target_x,
-            target_y,
-            target_z,
-            orientation_rpy
-        )
+    #     joints = self.solve_ik(
+    #         target_x,
+    #         target_y,
+    #         target_z,
+    #         orientation_rpy
+    #     )
 
-        if joints is None:
-            self.get_logger().error(
-                "Height IK failed ❌"
-            )
-            return
+    #     if joints is None:
+    #         self.get_logger().error(
+    #             "Height IK failed ❌"
+    #         )
+    #         return
 
-        self.move_to_joints(
-            joints,
-            f"MOVE_TO_LEAF_HEIGHT_{leaf_index}"
-        )
+    #     self.move_to_joints(
+    #         joints,
+    #         f"MOVE_TO_LEAF_HEIGHT_{leaf_index}"
+    #     )
 
-        self.get_logger().info(
-            "Reached leaf height ✔"
-        )
+    #     self.get_logger().info(
+    #         "Reached leaf height ✔"
+    #     )
 
     def get_tcp_pose(self):
 

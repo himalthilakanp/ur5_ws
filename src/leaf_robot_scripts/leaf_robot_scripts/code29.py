@@ -634,7 +634,7 @@ class MoveWithMoveIt(Node):
         x,
         y,
         z,
-        yaw
+        yaw,
         lock_j4=None,
         lock_j5=None
     ):
